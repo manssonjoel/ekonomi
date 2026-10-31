@@ -125,7 +125,7 @@
     [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334].forEach((d, m) => { if (m) g += `<line x1="${x(d)}" x2="${x(d)}" y1="${T}" y2="${H - B}" class="grid v"/>`; if (m % 2 === 0 || Wd > 500) g += `<text x="${x(d) + 2}" y="${H - 7}" class="ax">${MON[m]}</text>`; });
     series.forEach(s => { if (!s.pts.length) return; const pts = [[0, 0]].concat(s.pts);
       g += `<polyline points="${pts.map(p => `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ')}" class="line step ${s.cls}"/>`;
-      const lp = pts[pts.length - 1]; g += `<text x="${Math.min(x(lp[0]) + 3, Wd - 32)}" y="${y(lp[1]) - 3}" class="ax ylab ${s.cls}">${esc(s.name)}</text>`; });
+      if (o.labels !== false) { const lp = pts[pts.length - 1]; g += `<text x="${Math.min(x(lp[0]) + 3, Wd - 32)}" y="${y(lp[1]) - 3}" class="ax ylab ${s.cls}">${esc(s.name)}</text>`; } });
     return box(g, Wd, H, px => { const day = Math.max(0, Math.min(365, (px - L) / (Wd - L - R) * 365)); const dt = new Date(Date.UTC(2001, 0, 1 + Math.round(day)));
       return { x: x(day), html: `<b>${dt.getUTCDate()} ${MON[dt.getUTCMonth()]}</b>` + series.map(s => { let v = 0; for (const p of s.pts) if (p[0] <= day) v = p[1]; return `<div><i class="dot ${s.cls}"></i>${esc(s.name)}: ${fmt(v, kind)}</div>`; }).join('') }; });
   }

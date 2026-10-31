@@ -1,5 +1,5 @@
 /* Ekonomi – appens gränssnitt */
-window.EKONOMI_VERSION = '1.4.0';
+window.EKONOMI_VERSION = '1.5.0';
 (function () {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
@@ -136,9 +136,18 @@ window.EKONOMI_VERSION = '1.4.0';
     S.out.forEach(x => { if (x.year === o.year - 1 && C.dayOfYear(x.d) <= day) v = typeof field === 'function' ? field(x) : x[field]; });
     return v;
   }
-  function yearSeries(fn, n = 5) {
-    const ys = [...new Set(S.out.map(x => x.year))].slice(-n), cur = ys[ys.length - 1];
-    return ys.map(y => ({ name: String(y), cls: y === cur ? 'c1' : y === cur - 1 ? 'c2' : 'c6', pts: S.out.filter(x => x.year === y).map(x => [C.dayOfYear(x.d), fn(x)]) }));
+  // År mot år: i år och i fjol som standard, övriga år väljs med knappar
+  const YCLS = ['c1', 'c2', 'c3', 'c4', 'c5', 'c7', 'c8'];
+  function yearCompare(key, fn) {
+    const ys = [...new Set(S.out.map(x => x.year))], cur = ys[ys.length - 1];
+    S.ysel = S.ysel || {}; const sel = S.ysel[key] || (S.ysel[key] = [cur, cur - 1].filter(y => ys.includes(y)));
+    const color = y => YCLS[(cur - y) % YCLS.length];
+    const series = sel.slice().sort().map(y => ({ name: String(y), cls: color(y), pts: S.out.filter(x => x.year === y).map(x => [C.dayOfYear(x.d), fn(x)]) }));
+    return [h('div', { class: 'chips small' }, ys.slice().reverse().map(y => h('button', { class: sel.includes(y) ? 'on ' + color(y) : '', onclick: ev => { ev.preventDefault();
+        const k = sel.indexOf(y); if (k >= 0) { if (sel.length > 1) sel.splice(k, 1); } else sel.push(y); render(); } }, String(y)))),
+      C.yearLines(series, { labels: false }),
+      h('div', { class: 'ytable' }, series.slice().reverse().map(s => { const last = s.pts.length ? s.pts[s.pts.length - 1][1] : 0;
+        return h('div', {}, h('i', { class: 'dot ' + s.cls }), h('span', {}, s.name), h('b', {}, kr(last)), h('small', {}, s.name == cur ? 'hittills i år' : 'helår')); }))];
   }
   // diagram (återanvänds på flera sidor)
   const G = {
@@ -250,9 +259,9 @@ window.EKONOMI_VERSION = '1.4.0';
         stat('Senaste lönen', lastLon ? pct(lastLon.manKvot, false) : '–', lastLon ? `${kr(lastLon.manSparat)} av ${kr(lastLon.lon)}` : ''),
         stat('Utdelningar i år', kr(utdYtd(o)), fjolUtd !== null ? `i fjol vid denna tid ${kr(fjolUtd)}` : ''))),
       card('Nettoårsinkomst och sparkvot', null, G.inkomst()),
-      card('Sparande i år jämfört med tidigare år', null, C.yearLines(yearSeries(x => x.sparatAr))),
+      card('Sparande år för år', null, yearCompare('spar', x => x.sparatAr)),
       card('Utdelningar per år', null, C.bars(y.map(x => x.label), [{ name: 'Utdelningar', values: y.map(utdYtd), cls: 'c2' }], { labels: true })),
-      card('Utdelningar i år jämfört med tidigare år', null, C.yearLines(yearSeries(utdYtd))),
+      card('Utdelningar år för år', null, yearCompare('utd', utdYtd)),
       lonRader.length ? card('Per lön ' + o.year, null, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Lönevecka', 'Nettolön', 'Sparat', 'Sparkvot'].map(x => h('th', {}, x)))),
         h('tbody', {}, lonRader.map(x => h('tr', {}, h('td', {}, dstr(x.d).replace(/ \d{4}$/, '')), h('td', {}, nf0.format(x.lon)),
           h('td', { class: cls(x.manSparat) }, x.manSparat === null ? '–' : nf0.format(x.manSparat)), h('td', {}, x.manKvot === null ? '–' : pct(x.manKvot, false))))))) : null,
@@ -304,11 +313,24 @@ window.EKONOMI_VERSION = '1.4.0';
     const inputs = {};
     const fmtIn = v => (v === undefined || v === null || v === 0) ? '' : nf2.format(v);
     const field = (path, label, kind) => {
-      const ph = kind === 'value' && prev ? 'förra: ' + nf0.format(getP(prev, path) || 0) : '0';
-      const inp = h('input', { inputmode: 'decimal', autocomplete: 'off', placeholder: ph, value: editing ? fmtIn(getP(editing, path)) : '', 'data-kind': kind, oninput: ev => { delete ev.target.dataset.auto; preview(); } });
-      inputs[path] = inp;
-      return h('label', { class: 'fld' }, h('span', {}, label), inp, kind === 'value' && prev ? h('button', { type: 'button', class: 'mini', title: 'Samma som förra veckan', onclick: () => { inp.value = fmtIn(getP(prev, path)); preview(); } }, '↺') : h('span', { class: 'mini' }));
+      const inp = h('input', { inputmode: 'decimal', enterkeyhint: 'next', autocomplete: 'off', placeholder: kind === 'value' ? '' : '0', value: editing ? fmtIn(getP(editing, path)) : '', 'data-kind': kind,
+        oninput: ev => { delete ev.target.dataset.auto; preview(); }, onkeydown: ev => { if (ev.key === 'Enter') { ev.preventDefault(); nextEmpty(inp); } } });
+      inputs[path] = inp; labels[path] = label;
+      return h('label', { class: 'fld' }, h('span', {}, label), inp);
     };
+    const labels = {}; let tried = false;
+    function applyHoldings(res) {
+      const t = res.totals, ex = ((S.data.settings || {}).avanzaEx) || [], x = AV.an ? Avanza.excludedValues(AV.an, AV.data.holdings, ex) : { aktie: 0, fond: 0, etf: 0 };
+      inputs['av.av'].value = fmtIn(Math.round(t.aktie - x.aktie)); inputs['av.fv'].value = fmtIn(Math.round(t.fond - x.fond)); inputs['av.ev'].value = fmtIn(Math.round(t.etf - x.etf));
+      ['av.av', 'av.fv', 'av.ev'].forEach(p => delete inputs[p].dataset.auto);
+      if (x.aktie + x.fond + x.etf) toast(`${kr(x.aktie + x.fond + x.etf)} på avstängda konton är borträknat`, 'ok');
+    }
+    // Enter / Nästa: hoppa till nästa synliga tomma fält (eller Spara)
+    function nextEmpty(from) {
+      const all = [...form.querySelectorAll('input[inputmode=decimal]')].filter(i => i.offsetParent !== null);
+      const k = all.indexOf(from), nx = all.slice(k + 1).find(i => i.value.trim() === '') || null;
+      if (nx) { nx.focus(); nx.scrollIntoView({ block: 'center', behavior: 'smooth' }); } else { from.blur(); form.querySelector('button[type=submit]').scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    }
     const date = h('input', { type: 'date', value: editing ? editing.d : today(), max: today(), required: true, oninput: () => { autoFill(false); preview(); } });
     let kassa2Row = null;
     const autoInfo = h('div', { class: 'auto' });
@@ -319,26 +341,29 @@ window.EKONOMI_VERSION = '1.4.0';
       const prevD = rows.filter(x => x.d < date.value && x !== editing).map(x => x.d).pop() || shiftDays(date.value, -7);
       const ex = ((S.data.settings || {}).avanzaEx) || [];
       const f = Avanza.weekFlows(AV.data.tx, AV.an, AV.data.holdings, prevD, date.value, ex);
+      const covered = !!(AV.data.coverTo && AV.data.coverTo >= date.value);
       if (!editing || force) {
         [['av.ai', f.aktie], ['av.fi', f.fond], ['av.ei', f.etf], ['av.utd', f.utd], ['av.avg', f.avg], ['kassa2', f.sparkonto]].forEach(([p, v]) => {
           const inp = inputs[p]; if (!inp) return;
-          if (force || inp.value.trim() === '' || inp.dataset.auto) { inp.value = v ? fmtIn(v) : ''; inp.dataset.auto = '1'; }
+          if (force || inp.value.trim() === '' || inp.dataset.auto !== undefined) { inp.value = v ? fmtIn(v) : ''; inp.dataset.auto = covered ? '1' : '0'; }
         });
       }
-      renderAuto({ f, prevD });
+      renderAuto({ f, prevD, covered });
     }
     function renderAuto(x) {
       autoInfo.innerHTML = '';
       const last = AV.an ? AV.an.lastDate : null;
       if (x) autoInfo.append(h('p', { class: 'note' }, `Ifyllt från Avanza-transaktionerna ${dstr(x.prevD)} – ${dstr(date.value)} (${x.f.n} st). Senaste transaktion i filen: ${last ? dstr(last) : '–'}. Du kan ändra värdena.`),
-        ...(last && last < x.prevD ? [h('p', { class: 'warn' }, 'Filen saknar transaktioner för den här perioden – importera en ny export om du har handlat.')] : []));
+        ...(!x.covered ? [h('p', { class: 'warn' }, `Transaktionsfilen gäller till ${AV.data.coverTo ? dstr(AV.data.coverTo) : 'okänt datum'} – importera en ny export för att få med hela veckan.`)] : []));
       else autoInfo.append(h('p', { class: 'note' }, AV.loaded ? 'Fyll i själv, eller importera Avanzas transaktionsexport så fylls fälten i automatiskt.' : 'Hämtar Avanza-transaktioner…'));
       autoInfo.append(csvIn, h('div', { class: 'btns' }, h('button', { type: 'button', class: 'ghost small', onclick: () => csvIn.click() }, 'Importera transaktioner (CSV)'),
         x && editing ? h('button', { type: 'button', class: 'ghost small', onclick: () => { autoFill(true); preview(); } }, 'Fyll i från transaktionerna') : null));
     }
     const yearEnd = h('input', { type: 'checkbox', onchange: () => preview() });
     const yearEndBox = h('label', { class: 'chk', style: 'display:none' }, yearEnd, h('span', {}, ''));
-    form.append(h('section', { class: 'card' }, h('h2', {}, editing ? 'Ändra vecka' : 'Ny vecka'), h('label', { class: 'fld' }, h('span', {}, 'Datum för avläsningen'), date),
+    form.append(h('section', { class: 'card' }, h('h2', {}, editing ? 'Ändra vecka' : 'Ny vecka'),
+      editing ? null : h('button', { type: 'button', class: 'primary wide wizbtn', onclick: () => wizard() }, 'Lägg in veckan steg för steg'),
+      h('label', { class: 'fld' }, h('span', {}, 'Datum för avläsningen'), date),
       h('p', { class: 'note' }, 'Använd dagens datum, även om du är sen – värdena gäller den dag du läser av dem.'), yearEndBox));
     FIELDS().forEach(([title, fl]) => {
       const sec = h('section', { class: 'card' }, h('h3', {}, title), fl.map(f => field(...f)));
@@ -346,11 +371,7 @@ window.EKONOMI_VERSION = '1.4.0';
         let box = null;
         const btn = h('button', { type: 'button', class: 'linkbtn', onclick: () => {
           if (box) { box.remove(); box = null; return; }
-          box = pasteBox(res => {
-            const t = res.totals, ex = ((S.data.settings || {}).avanzaEx) || [], x = AV.an ? Avanza.excludedValues(AV.an, AV.data.holdings, ex) : { aktie: 0, fond: 0, etf: 0 };
-            inputs['av.av'].value = fmtIn(Math.round(t.aktie - x.aktie)); inputs['av.fv'].value = fmtIn(Math.round(t.fond - x.fond)); inputs['av.ev'].value = fmtIn(Math.round(t.etf - x.etf));
-            if (x.aktie + x.fond + x.etf) toast(`${kr(x.aktie + x.fond + x.etf)} på avstängda konton är borträknat`, 'ok');
-            box.remove(); box = null; preview(); },
+          box = pasteBox(res => { applyHoldings(res); box.remove(); box = null; preview(); },
             'Värdena för aktier, fonder och ETF fylls i (konton du stängt av räknas bort), och kurserna under Innehav uppdateras.');
           sec.append(box); } }, 'Klistra in innehavslistan från Avanza');
         sec.append(btn);
@@ -383,7 +404,7 @@ window.EKONOMI_VERSION = '1.4.0';
         if (kind === 'opt' && inp.value.trim() === '') continue;
         setP(r, p, v);
       }
-      Object.values(inputs).forEach(i => i.classList.toggle('bad', bad.includes(i)));
+      Object.values(inputs).forEach(i => i.classList.toggle('bad', tried && bad.includes(i)));
       return { r, bad };
     }
     function lonDagar() {
@@ -419,6 +440,7 @@ window.EKONOMI_VERSION = '1.4.0';
         rows.some(x => x.d === r.d && x !== editing) ? h('div', { class: 'warn' }, 'Det finns redan en vecka med detta datum – den ersätts.') : null].filter(Boolean));
     }
     async function submit() {
+      tried = true;
       const { r, bad } = collect();
       if (bad.length) { toast('Kontrollera de markerade fälten. Värden måste fyllas i; t.ex. 1 234,50 eller 1000+250.', 'err'); bad[0].focus(); return; }
       const ye = yearEnd.checked ? yearEndInfo() : null;
@@ -437,6 +459,59 @@ window.EKONOMI_VERSION = '1.4.0';
     async function del() {
       if (!confirm(`Ta bort veckan ${dstr(editing.d)}?`)) return;
       if (await commit(d => { d.rows = d.rows.filter(x => x.d !== editing.d); }, 'Veckan är borttagen')) location.hash = '#historik';
+    }
+
+    // ------------------------------------------------ steg för steg (som makrot): en fråga i taget, hoppar över det som redan är ifyllt
+    function wizard() {
+      const lonVisas = lonSec.style.display !== 'none';
+      const plan = [
+        ['kassa', 'Kassa', 'Hur mycket har du på lönekonto + buffert?'],
+        ['av.av', 'Avanza', 'Vad är aktievärdet på Avanza?', 'paste'], ['av.fv', 'Avanza', 'Vad är fondvärdet på Avanza?', 'paste'], ['av.ev', 'Avanza', 'Vad är ETF-värdet på Avanza?', 'paste'],
+        ['av.ai', 'Avanza', 'Hur mycket har du investerat i aktier denna vecka?'], ['av.fi', 'Avanza', 'Hur mycket har du investerat i fonder denna vecka?'],
+        ['av.ei', 'Avanza', 'Hur mycket har du investerat i ETF:er denna vecka?'], ['av.utd', 'Avanza', 'Hur mycket utdelning har kommit in?'],
+        ['sv.val', 'SAVR', 'Vad är fondvärdet i SAVR?'], ['sv.inv', 'SAVR', 'Hur mycket har du satt in i SAVR (egna pengar)?'],
+        ['db.val', bankNamn(), `Vad är fondvärdet i ${bankNamn()}?`], ['db.inv', bankNamn(), `Hur mycket har du satt in i fonder i ${bankNamn()}?`],
+      ].concat(lonVisas ? [['lon', 'Lön', 'Lönen har kommit – vad blev nettolönen?']] : []);
+      // hoppa över fält som redan har ett värde (inklistrat, importerat eller skrivet)
+      const steps = plan.filter(([p]) => inputs[p] && inputs[p].value.trim() === '' && inputs[p].dataset.auto !== '1');
+      let i = 0;
+      const ov = h('div', { class: 'wiz' }), boxEl = h('div', { class: 'wizbox' }); ov.append(boxEl);
+      const close = () => { ov.remove(); document.removeEventListener('keydown', esc); preview(); };
+      const esc = ev => { if (ev.key === 'Escape') close(); };
+      document.addEventListener('keydown', esc);
+      function show() {
+        boxEl.innerHTML = '';
+        const head = h('div', { class: 'wizhead' }, h('span', {}, i < steps.length ? `${i + 1} av ${steps.length}` : 'Klart'), h('button', { type: 'button', class: 'mini x', onclick: close, title: 'Stäng' }, '✕'));
+        const bar = h('div', { class: 'goal' }, h('div', { class: 'bar' }, h('i', { style: `width:${(steps.length ? i / steps.length : 1) * 100}%` })));
+        boxEl.append(head, bar);
+        if (i >= steps.length) {
+          preview();
+          boxEl.append(h('h3', {}, 'Sammanfattning'), h('div', { class: 'preview' }, ...[...pv.childNodes].map(n => n.cloneNode(true))),
+            h('p', { class: 'note' }, steps.length ? '' : 'Allt var redan ifyllt.'),
+            h('div', { class: 'btns' }, steps.length ? h('button', { type: 'button', class: 'ghost', onclick: () => { i--; show(); } }, 'Tillbaka') : null,
+              h('button', { type: 'button', class: 'ghost', onclick: close }, 'Granska formuläret'),
+              h('button', { type: 'button', class: 'primary', onclick: () => { close(); form.requestSubmit(); } }, 'Spara')));
+          return;
+        }
+        const [p, sec, q, extra] = steps[i], src = inputs[p], kind = src.dataset.kind;
+        const inp = h('input', { inputmode: 'decimal', enterkeyhint: 'next', autocomplete: 'off', value: src.value, placeholder: kind === 'value' ? '' : '0' });
+        const err = h('p', { class: 'warn' });
+        const next = () => {
+          const v = inp.value.trim();
+          if (kind === 'value' && v === '') { err.textContent = 'Fyll i ett värde.'; inp.focus(); return; }
+          if (v !== '' && !isFinite(parseNum(v))) { err.textContent = 'Skriv ett belopp, t.ex. 1 234,50 eller 1000+250.'; inp.focus(); return; }
+          src.value = v === '' ? '' : fmtIn(parseNum(v)); delete src.dataset.auto; i++; show();
+        };
+        inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); next(); } });
+        boxEl.append(h('div', { class: 'wizsec' }, sec), h('div', { class: 'wizq' }, q), inp, err,
+          extra === 'paste' ? h('button', { type: 'button', class: 'linkbtn', onclick: () => {
+            const pb = pasteBox(res => { applyHoldings(res); const left = steps.slice(i).filter(([pp]) => inputs[pp].value.trim() === ''); steps.splice(i, steps.length - i, ...left); show(); },
+              'Fyller i aktier, fonder och ETF på en gång.'); boxEl.append(pb); pb.querySelector('textarea').focus(); } }, 'Klistra in innehavslistan från Avanza i stället') : null,
+          h('div', { class: 'btns' }, h('button', { type: 'button', class: 'ghost', disabled: i === 0 ? true : null, onclick: () => { i--; show(); } }, 'Tillbaka'),
+            h('button', { type: 'button', class: 'primary', onclick: next }, 'Nästa')));
+        setTimeout(() => inp.focus(), 30);
+      }
+      document.body.append(ov); show();
     }
     setTimeout(() => { if (AV.loaded) autoFill(false); else avLoad().then(() => { autoFill(false); preview(); }); preview(); }, 0);
     return form;
@@ -469,7 +544,9 @@ window.EKONOMI_VERSION = '1.4.0';
       const rows = Avanza.parseCSV(await f.text()).map(slim);
       if (!AV.loaded) await avLoad();
       const m = Avanza.merge((AV.data && AV.data.tx) || [], rows);
-      await avSave(d => { d.tx = m.rows; }, m.added ? `${m.added} nya transaktioner (${m.skipped} fanns redan)` : 'Inga nya transaktioner – allt fanns redan');
+      // exportens slutdatum står i filnamnet (transaktioner_ÅÅÅÅ-MM-DD_ÅÅÅÅ-MM-DD.csv), annars dagens datum
+      const fm = (f.name || '').match(/(\d{4}-\d{2}-\d{2})\D*\.csv$/i), end = fm ? fm[1] : today();
+      await avSave(d => { d.tx = m.rows; if (!d.coverTo || end > d.coverTo) d.coverTo = end; }, m.added ? `${m.added} nya transaktioner (${m.skipped} fanns redan)` : 'Inga nya transaktioner – allt fanns redan');
     } catch (e) { toast(e.message, 'err'); }
   }
   async function avSaveHoldings(text) {
