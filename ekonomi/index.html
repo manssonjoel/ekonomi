@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f4d3a">
+<meta name="referrer" content="no-referrer">
+<title>Ekonomi</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+:root{--bg:#f4f2ee;--card:#fff;--ink:#1d211f;--mut:#6b716d;--line:#e6e2da;--acc:#1f4d3a;--acc2:#c98a1b;--pos:#1d7a4a;--neg:#b23a2e;--r:14px}
+@media (prefers-color-scheme:dark){:root{--bg:#121513;--card:#1b1f1d;--ink:#eceeea;--mut:#9aa19c;--line:#2b302d;--acc:#7fc4a2;--acc2:#f0b54a;--pos:#5fcf8f;--neg:#f07a6c}}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+header{position:sticky;top:0;z-index:5;background:var(--acc);color:#fff;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;gap:10px}
+@media (prefers-color-scheme:dark){header{background:#173a2c}}
+header b{font-size:17px;letter-spacing:.2px}header #status{margin-left:auto;font-size:12px;opacity:.85}
+main{max-width:760px;margin:0 auto;padding:12px 12px calc(90px + env(safe-area-inset-bottom))}
+nav{position:fixed;bottom:0;left:0;right:0;z-index:5;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom)}
+nav a{flex:1;max-width:190px;text-align:center;padding:9px 4px 8px;color:var(--mut);text-decoration:none;font-size:12px}
+nav a svg{display:block;margin:0 auto 2px;width:22px;height:22px}nav a.on{color:var(--acc);font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 14px;margin:0 0 12px}
+h2{font-size:15px;margin:0 0 10px}h3{font-size:13px;margin:0 0 8px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
+.hero{padding:18px 6px 14px}.hero .lbl{color:var(--mut);font-size:13px}.huge{font-size:34px;font-weight:700;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.sub{color:var(--mut);font-size:13px}.pos{color:var(--pos)}.neg{color:var(--neg)}
+.goal{margin-top:10px}.goal .bar{height:8px;background:var(--line);border-radius:5px;overflow:hidden}.goal .bar i{display:block;height:100%;background:var(--acc2);border-radius:5px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px 8px;margin-bottom:6px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stat .lbl{font-size:12px;color:var(--mut)}.stat .big{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.stat .big{white-space:nowrap}@media (max-width:420px){.stat .big{font-size:17px}}
+.note{color:var(--mut);font-size:12.5px;margin:10px 0 0}.note.pad{padding:0 6px}ul.note{padding-left:18px}ul.note li{margin:4px 0}
+.warn{color:var(--acc2);font-size:13px}
+.tbl{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;margin-top:6px}.tbl th,.tbl td{text-align:right;padding:6px 4px;border-bottom:1px solid var(--line);white-space:nowrap}@media (max-width:420px){.tbl{font-size:13px}}
+.tbl th:first-child,.tbl td:first-child{text-align:left}.tbl th{font-size:12px;color:var(--mut);font-weight:500}.tbl tfoot td{border:0;font-size:12px;color:var(--mut);white-space:normal}
+.small{font-size:12px}.hint{background:color-mix(in srgb,var(--acc2) 14%,var(--card));border-color:color-mix(in srgb,var(--acc2) 40%,var(--line));font-size:14px}.tag{font-style:normal;font-size:10.5px;background:var(--line);color:var(--mut);border-radius:6px;padding:1px 5px;margin-left:6px;vertical-align:1px}.gap{display:block;font-size:10.5px;color:var(--mut)}.chk{display:flex;gap:10px;align-items:flex-start;font-size:13px;margin-top:10px;color:var(--acc2)}.chk input{margin-top:3px;width:18px;height:18px;flex:none}.hint div+div{margin-top:6px}.linkbtn{border:0;background:none;color:var(--acc);font:inherit;font-size:13px;padding:0 6px 14px;cursor:pointer}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.row h2{margin:0}
+.seg{display:flex;background:var(--bg);border-radius:9px;padding:2px}.seg button{border:0;background:none;padding:5px 10px;border-radius:7px;color:var(--mut);font:inherit;font-size:12.5px}.seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px #0002}
+.chart{position:relative;margin-top:8px}.chart svg{width:100%;height:auto;display:block;touch-action:pan-y}
+.chart .grid{stroke:var(--line);stroke-width:1}.chart .grid.v{stroke-dasharray:3 4}.chart .ax{fill:var(--mut);font-size:11px}.chart .val{font-size:10.5px;fill:var(--ink)}.chart .val.inbar{fill:#fff}
+.chart .line{fill:none;stroke-width:2;vector-effect:non-scaling-stroke}.line.c1{stroke:var(--acc)}.line.c2{stroke:var(--acc2);stroke-dasharray:5 4}.fill.c1{fill:var(--acc);opacity:.10}
+.chart .cursor{stroke:var(--mut);stroke-width:1;vector-effect:non-scaling-stroke}.bar.pos{fill:var(--pos);opacity:.85}.bar.neg{fill:var(--neg);opacity:.85}
+.tip{display:none;position:absolute;top:0;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:6px 9px;font-size:12px;box-shadow:0 4px 14px #0002;pointer-events:none;width:170px}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--mut);margin-top:6px}.dot{display:inline-block;width:9px;height:9px;border-radius:5px;margin-right:5px;vertical-align:0}.dot.c1{background:var(--acc)}.dot.c2{background:var(--acc2)}
+.fld{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}.fld:last-child{border:0}.fld span{flex:1;font-size:14px}
+.fld input{width:46%;max-width:220px;font:inherit;font-size:16px;text-align:right;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font-variant-numeric:tabular-nums}
+.fld input[type=date]{text-align:left}.fld input.bad{border-color:var(--neg);background:color-mix(in srgb,var(--neg) 8%,var(--bg))}
+.mini{border:0;background:none;color:var(--mut);font-size:17px;padding:4px;width:28px;flex:none!important}
+details summary{cursor:pointer;font-weight:600;font-size:14px}
+.sticky{position:sticky;bottom:calc(64px + env(safe-area-inset-bottom));box-shadow:0 -4px 16px #0001}
+.preview{font-size:13.5px;margin-bottom:10px;display:grid;gap:2px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.btns.col{flex-direction:column}
+button.primary,button.ghost,button.danger,a.btn{font:inherit;font-weight:600;border-radius:11px;padding:11px 16px;border:1px solid transparent;cursor:pointer;text-align:center;text-decoration:none}
+.primary{background:var(--acc);color:#fff;flex:1}@media (prefers-color-scheme:dark){.primary{color:#0d1a14}}
+.primary:disabled{opacity:.6}.ghost{background:var(--bg);border-color:var(--line)!important;color:var(--ink)}.danger{background:none;color:var(--neg);border-color:var(--line)!important}
+.wide{width:100%}.center{text-align:center}.logo img{width:72px;height:72px;margin:6px auto}
+.list{padding:4px 0}.li{display:grid;grid-template-columns:1.1fr 1.2fr 1.5fr;gap:6px;padding:9px 14px;border-bottom:1px solid var(--line);color:var(--ink);text-decoration:none;font-variant-numeric:tabular-nums;font-size:13.5px}
+.li span:not(:first-child){text-align:right}.li.head{font-size:12px;color:var(--mut)}.yr{padding:10px 14px 4px;font-weight:700;color:var(--acc)}
+#toasts{position:fixed;left:0;right:0;bottom:calc(80px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:6px;z-index:9;pointer-events:none}
+.toast{background:#222;color:#fff;padding:10px 14px;border-radius:10px;font-size:14px;max-width:92%;opacity:0;transform:translateY(8px);transition:.3s}.toast.show{opacity:1;transform:none}.toast.err{background:#8a2a20}.toast.ok{background:#1f4d3a}
+</style>
+</head>
+<body>
+<header><b>Ekonomi</b><span id="status"></span></header>
+<main id="main"></main>
+<nav id="nav">
+  <a href="#oversikt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 20h18M6 16v-5M11 16V7M16 16v-8M21 16V4"/></svg>Översikt</a>
+  <a href="#ny"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Ny vecka</a>
+  <a href="#historik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Historik</a>
+  <a href="#mer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>Mer</a>
+</nav>
+<div id="toasts"></div>
+<script src="config.js"></script>
+<script src="calc.js"></script>
+<script src="xlsx.js"></script>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
