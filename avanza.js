@@ -168,6 +168,57 @@
     return { current, closed, years, groups, count: tx.length, first: rows.length ? rows[0].d : null, lastDate: rows.length ? rows[rows.length - 1].d : null };
   }
 
-  const api = { parseCSV, merge, parseHoldings, analyze, num };
+
+  // ---------------------------------------------------------------- veckans Avanza-flöden
+  const SECCASH = new Set(['Köp', 'Sälj', 'Rättelse sälj', 'Teckning likvid', 'Bokning fraktionslikvider', 'Inlösen']);
+  const RETURN = new Set(['Utdelning', 'Utländsk källskatt', 'Återbetalning utländsk källskatt', 'Avkastningsskatt', 'Uttag av riskkostnad', 'ADR-avgift',
+    'Utlåningsränta', 'Preliminärskatt kapitalränta', 'Justering ränta', 'Inlåningsränta', 'Utbetalning aktielån']);
+  const SECTYPES = new Set([...SECCASH, ...DIV, ...CONV, 'Utbokning fraktioner', 'Värdepappersuttag', 'Split värdepapper']);
+  function typeOf(g, holdings) {
+    if (holdings && holdings.items) for (const i of holdings.items) if (g.allNames.has(norm(i.name))) return i.typ;
+    const s = [...g.allNames].join(' ');
+    if (/etf|ucits|ishares|xact|xtrackers|amundi|vanguard|spdr/.test(s)) return 'etf';
+    if (/fond|robur|avanza (zero|global|usa|emerging|auto|sweden|tech|fastighet|europa|asien)|handelsbanken|spiltan aktie|lannebo|didner|skagen|plus |indexnära/.test(s)) return 'fond';
+    return 'aktie';
+  }
+  // Konton i exporten: värdepapperskonton och rena sparkonton (t.ex. "Buffert")
+  function accounts(tx) {
+    const m = new Map();
+    tx.forEach(t => { const a = m.get(t.konto) || m.set(t.konto, { konto: t.konto, sec: false, cash: 0, last: t.d, n: 0 }).get(t.konto);
+      a.n++; a.cash += t.belopp || 0; if (t.d > a.last) a.last = t.d; if (SECTYPES.has(t.typ) && t.isin) a.sec = true; });
+    return [...m.values()].map(a => Object.assign(a, { cash: Math.round(a.cash * 100) / 100 + 0, kind: a.sec ? 'värdepapper' : 'sparkonto' })).sort((a, b) => b.n - a.n);
+  }
+  // Köp − försäljningar per typ och avkastningsposter (utdelningar, källskatt, skatt, avgifter) under (from, to]
+  function weekFlows(tx, an, holdings, from, to, excluded) {
+    const ex = new Set(excluded || []), byTx = new Map(), typ = new Map();
+    an.groups.forEach(g => { const t = typeOf(g, holdings); typ.set(g, t); g.tx.forEach(r => byTx.set(r, g)); });
+    const acc = new Map(accounts(tx).map(a => [a.konto, a]));
+    const f = { aktie: 0, fond: 0, etf: 0, utd: 0, avg: 0, sparkonto: 0, n: 0 };
+    for (const t of tx) {
+      if (ex.has(t.konto)) continue;
+      const a = acc.get(t.konto);
+      if (a && a.kind === 'sparkonto') { if (t.d <= to) f.sparkonto += t.belopp || 0; continue; }
+      if (!(t.d > from && t.d <= to)) continue;
+      const c = t.belopp || 0;
+      if (SECCASH.has(t.typ) && c) { const g = byTx.get(t); f[g ? typ.get(g) : 'aktie'] += -c; f.n++; }
+      else if (RETURN.has(t.typ) && c) { if (DIV.has(t.typ) || t.typ === 'Återbetalning utländsk källskatt') f.utd += c; else f.avg += c; f.n++; }
+    }
+    for (const k of ['aktie', 'fond', 'etf', 'utd', 'avg', 'sparkonto']) f[k] = Math.round(f[k] * 100) / 100;
+    return f;
+  }
+  // Värde (kr) per typ på de avstängda kontona, från antal per konto × värde per andel i innehavslistan
+  function excludedValues(an, holdings, excluded) {
+    const out = { aktie: 0, fond: 0, etf: 0 }; if (!holdings || !excluded || !excluded.length) return out;
+    an.current.forEach(c => {
+      const g = c.group; if (!g || !g.qty) return;
+      const per = c.varde / g.qty; let q = 0;
+      excluded.forEach(k => { const a = g.acc.get(k); if (a) q += a.qty; });
+      if (q > 1e-9) out[c.typ in out ? c.typ : 'aktie'] += q * per;
+    });
+    for (const k in out) out[k] = Math.round(out[k]);
+    return out;
+  }
+
+  const api = { parseCSV, merge, parseHoldings, analyze, num, accounts, weekFlows, excludedValues, typeOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Avanza = api;
 })(this);

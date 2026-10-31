@@ -59,23 +59,24 @@
   function compute(rawRows) {
     const rows = sortRows(rawRows), n = rows.length;
     const R = rows.map(r => ({
-      d: r.d, kassa: num(r.kassa), lon: (typeof r.lon === 'number') ? r.lon : null,
+      d: r.d, kassa: num(r.kassa) + num(r.kassa2), lon: (typeof r.lon === 'number') ? r.lon : null,
       ai: num(r.av && r.av.ai), fi: num(r.av && r.av.fi), ei: num(r.av && r.av.ei),
       aav: num(r.av && r.av.av), afv: num(r.av && r.av.fv), aev: num(r.av && r.av.ev),
-      utd: num(r.av && r.av.utd), avinst: num(r.av && r.av.vinst),
+      utd: num(r.av && r.av.utd), avg: num(r.av && r.av.avg), avinst: num(r.av && r.av.vinst),
       dinv: num(r.db && r.db.inv), dval: num(r.db && r.db.val), dvinst: num(r.db && r.db.vinst),
       sinv: num(r.sv && r.sv.inv), sval: num(r.sv && r.sv.val), sater: num(r.sv && r.sv.ater)
     }));
     // kumulativa serier
-    const c = { Ainv: [], Aai: [], Afi: [], Aei: [], Autd: [], Dinv: [], Sinv: [], SinvG: [], L: [], M: [] };
-    let s = { Ainv: 0, Aai: 0, Afi: 0, Aei: 0, Autd: 0, Dinv: 0, Sinv: 0, SinvG: 0, L: 0, M: 0 };
+    const c = { Ainv: [], Aai: [], Afi: [], Aei: [], Autd: [], Aown: [], Dinv: [], Sinv: [], SinvG: [], L: [], M: [] };
+    let s = { Ainv: 0, Aai: 0, Afi: 0, Aei: 0, Autd: 0, Aown: 0, Dinv: 0, Sinv: 0, SinvG: 0, L: 0, M: 0 };
     R.forEach((r, i) => {
-      s.Aai += r.ai; s.Afi += r.fi; s.Aei += r.ei; s.Ainv += r.ai + r.fi + r.ei; s.Autd += r.utd;
+      s.Aai += r.ai; s.Afi += r.fi; s.Aei += r.ei; s.Ainv += r.ai + r.fi + r.ei; s.Autd += r.utd + r.avg; s.Aown += r.ai + r.fi + r.ei - r.utd - r.avg - r.avinst;
       s.Dinv += r.dinv; s.Sinv += r.sinv + r.sater; s.SinvG += r.sinv;
       s.L += r.avinst + r.dvinst;           // realiserad vinst (återinvesterad vinst)
-      s.M += r.utd + r.sater;               // utdelningar + återbetald avgift
+      s.M += r.utd + r.avg + r.sater;       // utdelningar, skatt/avgifter (minus) och återbäring
       for (const k in s) c[k][i] = s[k];
     });
+    let dv = 0; const dvCum = R.map(r => (dv += r.dvinst));
     const Aval = R.map(r => r.aav + r.afv + r.aev), Dval = R.map(r => r.dval), Sval = R.map(r => r.sval);
     const N = R.map((r, i) => Aval[i] + Dval[i] + Sval[i]);
     const K = R.map((r, i) => c.Ainv[i] + c.Dinv[i] + c.Sinv[i] - c.L[i] - c.M[i]); // egna insatta pengar
@@ -85,7 +86,7 @@
     const start = R.map((r, i) => { let j = i - 1; while (j >= 0 && yr(R[j].d) >= yr(r.d)) j--; return j < 0 ? 0 : j; });
 
     const out = R.map((r, i) => ({ d: r.d, year: yr(r.d), N: N[i], K: K[i], V: V[i], kassa: Q[i], formogenhet: N[i] + Q[i],
-      Aval: Aval[i], Dval: Dval[i], Sval: Sval[i], Ainv: c.Ainv[i], Dinv: c.Dinv[i], SinvG: c.SinvG[i], lon: r.lon, utd: r.utd,
+      Aval: Aval[i], Dval: Dval[i], Sval: Sval[i], Ainv: c.Ainv[i], Aown: c.Aown[i], Dinv: c.Dinv[i], SinvG: c.SinvG[i], lon: r.lon, utd: r.utd, avg: r.avg, sater: r.sater,
       aav: r.aav, afv: r.afv, aev: r.aev, start: start[i] }));
 
     for (let i = 0; i < n; i++) {
@@ -106,11 +107,12 @@
       o.formAr = o.formogenhet - (N[st] + Q[st]);
       o.avTot = Aval[i] / (c.Ainv[i] - c.Autd[i]) - 1;
       o.dbTot = c.Dinv[i] ? Dval[i] / c.Dinv[i] - 1 : null;
+      o.Down = c.Dinv[i] - dvCum[i];
       o.svTot = c.SinvG[i] ? Sval[i] / c.SinvG[i] - 1 : null;
-      let utd = 0, ater = 0, lon = 0, lonN = 0;
-      for (let j = (st === i ? i : st + 1); j <= i; j++) { utd += R[j].utd; ater += R[j].sater; if (R[j].lon !== null) { lon += R[j].lon; lonN++; } }
+      let utd = 0, ater = 0, avg = 0, lon = 0, lonN = 0;
+      for (let j = (st === i ? i : st + 1); j <= i; j++) { utd += R[j].utd; ater += R[j].sater; avg += R[j].avg; if (R[j].lon !== null) { lon += R[j].lon; lonN++; } }
       if (st === 0 && yr(R[0].d) === o.year) { utd += R[0].utd; ater += R[0].sater; }
-      o.utdAr = utd; o.aterAr = ater; o.lonAr = lon; o.lonAntal = lonN;
+      o.utdAr = utd; o.aterAr = ater; o.avgAr = avg; o.lonAr = lon; o.lonAntal = lonN;
       o.sparkvotAr = lon ? o.sparatAr / lon : null;
     }
     // Per lön: sparat sedan förra lönen (egna insatta pengar + kassa) / nettolön
@@ -124,10 +126,10 @@
     }
     out.forEach(o => { o.snittMan = o.lonAntal ? o.sparatAr / o.lonAntal : null; });
     const tw = (val, inv, inc, fl) => chainTWR(n, start, val, inv, inc, fl);
-    const av = tw(Aval, c.Ainv, R.map(r => r.utd));
+    const av = tw(Aval, c.Ainv, R.map(r => r.utd + r.avg));
     const db = tw(Dval, c.Dinv, R.map(r => r.dvinst), R.map(r => r.dvinst));
     const sv = tw(Sval, c.SinvG);
-    const aa = tw(R.map(r => r.aav), c.Aai, R.map(r => r.utd));
+    const aa = tw(R.map(r => r.aav), c.Aai, R.map(r => r.utd + r.avg));
     const af = tw(R.map(r => r.afv), c.Afi);
     const ae = tw(R.map(r => r.aev), c.Aei);
     out.forEach((o, i) => { o.avY = av.year[i]; o.dbY = db.year[i]; o.svY = sv.year[i];

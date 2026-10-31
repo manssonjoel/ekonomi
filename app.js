@@ -1,5 +1,5 @@
 /* Ekonomi – appens gränssnitt */
-window.EKONOMI_VERSION = '1.2.0';
+window.EKONOMI_VERSION = '1.4.0';
 (function () {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
@@ -34,7 +34,7 @@ window.EKONOMI_VERSION = '1.2.0';
   }
 
   const bankNamn = () => (S.data && S.data.settings && S.data.settings.bank) || 'Bank';
-  const S = { data: null, etag: null, out: [], busy: false, range: '3', lastErr: null, syncedAt: null, offline: false };
+  const S = { data: null, etag: null, out: [], busy: false, range: '3', chart: 'formogenhet', lastErr: null, syncedAt: null, offline: false };
 
   function toast(msg, kind) {
     const t = h('div', { class: 'toast ' + (kind || '') }, msg);
@@ -74,13 +74,13 @@ window.EKONOMI_VERSION = '1.2.0';
     const rows = Calc.sortRows(S.data.rows), out = S.out;
     const P = v => ({ v, f: 'pct' }), K = v => ({ v, f: 'kr' });
     const B = bankNamn();
-    const head = ['Datum', 'Kassa', 'Avanza insatt aktier', 'Avanza insatt fonder', 'Avanza insatt ETF', 'Avanza värde aktier', 'Avanza värde fonder',
-      'Avanza värde ETF', 'Utdelning', 'Avanza realiserad vinst', B + ' insatt', B + ' värde', B + ' realiserad vinst', 'SAVR insatt (egna pengar)', 'SAVR värde',
+    const head = ['Datum', 'Kassa', 'Avanza sparkonto', 'Avanza insatt aktier', 'Avanza insatt fonder', 'Avanza insatt ETF', 'Avanza värde aktier', 'Avanza värde fonder',
+      'Avanza värde ETF', 'Utdelning', 'Avanza skatt & avgifter', 'Avanza realiserad vinst', B + ' insatt', B + ' värde', B + ' realiserad vinst', 'SAVR insatt (egna pengar)', 'SAVR värde',
       'SAVR återbäring', 'Nettolön', 'Totalt värde', 'Egna insatta pengar', 'Avkastat totalt', 'Avkastning veckan', 'Utveckling veckan',
       'Utveckling i år (tidsviktad)', 'Utveckling i år (pengaviktad)', 'Avkastat i år', 'Totalt på egna pengar', 'Förmögenhet', 'Sparat i år',
       'Avanza i år', B + ' i år', 'SAVR i år', 'Sparat sedan förra lönen', 'Sparkvot (månad)', 'Snittspar per månad i år'];
     const wk = [head].concat(rows.map((r, i) => { const o = out[i], a = r.av || {}, d = r.db || {}, s = r.sv || {};
-      return [{ date: r.d }, K(r.kassa), K(a.ai), K(a.fi), K(a.ei), K(a.av), K(a.fv), K(a.ev), K(a.utd), K(a.vinst), K(d.inv), K(d.val), K(d.vinst),
+      return [{ date: r.d }, K(r.kassa), K(r.kassa2), K(a.ai), K(a.fi), K(a.ei), K(a.av), K(a.fv), K(a.ev), K(a.utd), K(a.avg), K(a.vinst), K(d.inv), K(d.val), K(d.vinst),
         K(s.inv), K(s.val), K(s.ater), K(r.lon), K(o.N), K(o.K), K(o.V), K(o.W), P(o.X), P(o.Y), P(o.O), K(o.U), P(o.P), K(o.formogenhet),
         K(o.sparatAr), P(o.avY), P(o.dbY), P(o.svY), K(o.manSparat), P(o.manKvot), K(o.lon !== null ? o.snittMan : null)]; }));
     const yrs = Calc.years(out);
@@ -89,7 +89,7 @@ window.EKONOMI_VERSION = '1.2.0';
     const info = [['Ekonomi – backup'], ['Skapad: ' + new Date().toLocaleString('sv-SE')],
       ['Bladet "Veckor" innehåller all rådata (kolumn A–Q) och de uträknade värdena.'],
       ['Rådatan räcker för att återskapa allt. Originalfilen Joel_Ekonomi.xlsm innehåller historiken med formler.']];
-    return XLSX.build([{ name: 'Veckor', rows: wk, widths: [11].concat(Array(33).fill(14)) }, { name: 'År', rows: yr, widths: [8].concat(Array(13).fill(16)) },
+    return XLSX.build([{ name: 'Veckor', rows: wk, widths: [11].concat(Array(35).fill(14)) }, { name: 'År', rows: yr, widths: [8].concat(Array(13).fill(16)) },
       ...(AV.an ? avSheets() : []), { name: 'Info', rows: info, widths: [100] }]);
   }
   function avSheets() {
@@ -118,60 +118,54 @@ window.EKONOMI_VERSION = '1.2.0';
   }
 
   // ---------------------------------------------------------------- grafer (SVG)
-  function lineChart(series, dates, opts = {}) {
-    const W = chartW(), H = 240, L = 58, R = 10, T = 12, B = 26;
-    const all = series.flatMap(s => s.values).filter(isFinite);
-    let lo = Math.min(0, ...all), hi = Math.max(...all); if (hi === lo) hi = lo + 1;
-    const step = niceStep((hi - lo) / 4); lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
-    const x = i => L + (W - L - R) * (dates.length > 1 ? i / (dates.length - 1) : 0.5);
-    const y = v => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
-    let g = '';
-    for (let v = lo; v <= hi + step / 2; v += step) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${L - 6}" y="${y(v) + 4}" class="ax" text-anchor="end">${opts.pct ? nf0.format(v * 100) + ' %' : mkr(v)}</text>`;
-    let lastY = null;
-    dates.forEach((d, i) => { const yy = d.slice(0, 4); if (yy !== lastY && (i > 0 || dates.length < 60)) { if (i > 0) g += `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${H - B}" class="grid v"/>`; g += `<text x="${x(i) + 3}" y="${H - 8}" class="ax">${yy}</text>`; } lastY = yy; });
-    series.forEach(s => {
-      const pts = s.values.map((v, i) => isFinite(v) ? `${x(i).toFixed(1)},${y(v).toFixed(1)}` : null).filter(Boolean);
-      if (s.fill) g += `<polygon points="${x(0)},${y(Math.max(lo, 0))} ${pts.join(' ')} ${x(dates.length - 1)},${y(Math.max(lo, 0))}" class="fill ${s.cls}"/>`;
-      g += `<polyline points="${pts.join(' ')}" class="line ${s.cls}"/>`;
-    });
-    const svg = h('div', { class: 'chart', html: `<svg viewBox="0 0 ${W} ${H}" role="img">${g}<line class="cursor" x1="0" x2="0" y1="${T}" y2="${H - B}" style="display:none"/></svg>` });
-    const tip = h('div', { class: 'tip' }); svg.append(tip);
-    const move = ev => {
-      const rect = svg.getBoundingClientRect(); const px = ((ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left) / rect.width * W;
-      const i = Math.max(0, Math.min(dates.length - 1, Math.round((px - L) / (W - L - R) * (dates.length - 1))));
-      const c = $('.cursor', svg); c.style.display = ''; c.setAttribute('x1', x(i)); c.setAttribute('x2', x(i));
-      tip.innerHTML = `<b>${dstr(dates[i])}</b>` + series.map(s => `<div><i class="dot ${s.cls}"></i>${s.name}: ${opts.pct ? pct(s.values[i]) : kr(s.values[i])}</div>`).join('');
-      tip.style.display = 'block'; tip.style.left = Math.min(rect.width - 170, Math.max(0, x(i) / W * rect.width - 80)) + 'px';
-    };
-    svg.addEventListener('pointermove', move); svg.addEventListener('touchmove', move, { passive: true });
-    svg.addEventListener('pointerleave', () => { tip.style.display = 'none'; $('.cursor', svg).style.display = 'none'; });
-    return svg;
-  }
   function chartW() { const m = document.getElementById('main'); return Math.max(300, Math.min(736, (m ? m.clientWidth : 640) - 26)); }
   function niceStep(r) { const p = Math.pow(10, Math.floor(Math.log10(r))); const m = r / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p; }
-  function barChart(labels, values) {
-    const W = chartW(), H = 200, L = 44, R = 8, T = 18, B = 24;
-    let lo = Math.min(0, ...values), hi = Math.max(0, ...values); if (hi === lo) hi = 1;
-    const step = niceStep((hi - lo) / 4); lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
-    const y = v => T + (H - T - B) * (1 - (v - lo) / (hi - lo)); const bw = (W - L - R) / labels.length;
-    let g = '';
-    for (let v = lo; v <= hi + step / 2; v += step) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${L - 6}" y="${y(v) + 4}" class="ax" text-anchor="end">${nf0.format(v * 100)} %</text>`;
-    labels.forEach((lab, i) => { const v = values[i], x0 = L + i * bw + bw * 0.18, w = bw * 0.64;
-      g += `<rect x="${x0}" y="${Math.min(y(v), y(0))}" width="${w}" height="${Math.abs(y(v) - y(0))}" class="bar ${v >= 0 ? 'pos' : 'neg'}" rx="3"/>` +
-        `<text x="${x0 + w / 2}" y="${v >= 0 ? y(v) - 4 : y(0) + 13}" class="ax val${v < 0 ? ' inbar' : ''}" text-anchor="middle">${nf1.format(v * 100)}</text>` +
-        `<text x="${x0 + w / 2}" y="${H - 7}" class="ax" text-anchor="middle">${lab}</text>`; });
-    return h('div', { class: 'chart', html: `<svg viewBox="0 0 ${W} ${H}">${g}</svg>` });
+  // ---------------------------------------------------------------- vyer
+  // ---------------------------------------------------------------- gemensamma bitar för översikt och detaljsidor
+  const C = window.Charts;
+  const card = (title, href, ...kids) => h(href ? 'a' : 'section', { class: 'card' + (href ? ' link' : ''), href }, title ? h('div', { class: 'ch' }, h('h2', {}, title), href ? h('span', { class: 'more' }, '›') : null) : null, ...kids);
+  const stat = (label, main, sub, c) => h('div', { class: 'stat' }, h('div', { class: 'lbl' }, label), h('div', { class: 'big ' + (c || '') }, main), sub ? h('div', { class: 'sub' }, sub) : null);
+  const back = () => h('a', { class: 'back', href: '#oversikt' }, '‹ Översikt');
+  const rangeSeg = () => h('div', { class: 'seg' }, [['1', '1 år'], ['3', '3 år'], ['all', 'Allt']].map(([k, l]) => h('button', { class: S.range === k ? 'on' : '', onclick: ev => { ev.preventDefault(); S.range = k; render(); } }, l)));
+  function slice() { const out = S.out, o = out[out.length - 1]; if (S.range === 'all') return out; const from = shiftYears(o.d, -(+S.range)); return out.filter(x => x.d >= from); }
+  const legend = items => h('div', { class: 'legend' }, items.map(([cl, t]) => h('span', {}, h('i', { class: 'dot ' + cl }), t)));
+  const yearsDone = () => { const yrs = Calc.years(S.out), o = S.out[S.out.length - 1]; return yrs.map(y => ({ ...y, label: y.year + (y === yrs[yrs.length - 1] && o.d.slice(5) < '12-28' ? '*' : '') })); };
+  const utdYtd = o => o.utdAr + o.aterAr;
+  function sameTimeLastYear(field) {
+    const o = S.out[S.out.length - 1], day = C.dayOfYear(o.d); let v = null;
+    S.out.forEach(x => { if (x.year === o.year - 1 && C.dayOfYear(x.d) <= day) v = typeof field === 'function' ? field(x) : x[field]; });
+    return v;
+  }
+  function yearSeries(fn, n = 5) {
+    const ys = [...new Set(S.out.map(x => x.year))].slice(-n), cur = ys[ys.length - 1];
+    return ys.map(y => ({ name: String(y), cls: y === cur ? 'c1' : y === cur - 1 ? 'c2' : 'c6', pts: S.out.filter(x => x.year === y).map(x => [C.dayOfYear(x.d), fn(x)]) }));
+  }
+  // diagram (återanvänds på flera sidor)
+  const G = {
+    formogenhet: sl => [C.line(sl.map(x => x.d), [{ name: 'Förmögenhet', values: sl.map(x => x.formogenhet), cls: 'c1', fill: true }, { name: 'Portföljvärde', values: sl.map(x => x.N), cls: 'c3' }, { name: 'Egna insatta pengar', values: sl.map(x => x.K), cls: 'c2', dash: true }]),
+      legend([['c1', 'Förmögenhet'], ['c3', 'Portföljvärde'], ['c2', 'Egna insatta pengar']])],
+    perAr: () => { const y = yearsDone(); return [C.bars(y.map(x => x.label), [{ name: 'Utveckling', values: y.map(x => x.Y) }], { kind: 'pct', labels: true })]; },
+    inkomst: () => { const y = yearsDone().filter(x => x.lonAr > 0);
+      return [C.bars(y.map(x => x.label), [{ name: 'Nettoinkomst', values: y.map(x => x.lonAr), cls: 'c3' }, { name: 'Sparat', values: y.map(x => x.sparatAr), cls: 'c1' }, { name: 'Utdelningar', values: y.map(x => utdYtd(x)), cls: 'c2' }],
+        { line: { name: 'Sparkvot', values: y.map(x => x.sparkvotAr), cls: 'c4', kind: 'pct' } }), legend([['c3', 'Nettoinkomst'], ['c1', 'Sparat'], ['c2', 'Utdelningar'], ['c4', 'Sparkvot (höger axel)']])]; },
+    vecka: sl => [C.timeBars(sl.map(x => x.d), sl.map(x => x.W), { name: 'Avkastning', extra: i => `<div>${pct(sl[i].X)}</div>` })],
+    total: sl => [C.timeBars(sl.map(x => x.d), sl.map(x => x.V), { name: 'Avkastat totalt', cls: 'c1' })],
+    utv: sl => [C.line(sl.map(x => x.d), [{ name: 'Totalt på egna pengar', values: sl.map(x => x.P), cls: 'c1', fill: true }], { kind: 'pct' })],
+    iAr: () => { const o = S.out[S.out.length - 1], r = S.out.filter(x => x.year === o.year); return [C.line(r.map(x => x.d), [{ name: 'Tidsviktad', values: r.map(x => x.Y), cls: 'c1', fill: true }, { name: 'Pengaviktad', values: r.map(x => x.O), cls: 'c2', dash: true }], { kind: 'pct' }), legend([['c1', 'Tidsviktad'], ['c2', 'Pengaviktad (på insatt kapital)']])]; },
+  };
+  const CHARTS = [['formogenhet', 'Förmögenhet', true], ['perAr', 'Per år', false], ['inkomst', 'Inkomst & sparkvot', false], ['vecka', 'Per vecka', true], ['total', 'Total avkastning', true], ['utv', 'Utveckling %', true]];
+  function fordelning(o) {
+    const items = [{ name: 'Aktier', value: o.aav, cls: 'c1' }, { name: 'Fonder', value: o.afv + o.Sval + o.Dval, cls: 'c3' }, { name: 'ETF', value: o.aev, cls: 'c2' }];
+    return C.donut(items, { center: [C.mkr(o.N), 'investerat'] });
   }
 
-  // ---------------------------------------------------------------- vyer
+  // ---------------------------------------------------------------- översikt
   function viewOverview() {
-    const out = S.out, o = out[out.length - 1];
-    const yrs = Calc.years(out), prevY = yrs.length > 1 ? yrs[yrs.length - 2] : null;
+    const out = S.out, o = out[out.length - 1], n = out.length;
     const mal = (S.data.settings && S.data.settings.mal) || 0;
-    const stat = (label, main, sub, c) => h('div', { class: 'stat' }, h('div', { class: 'lbl' }, label), h('div', { class: 'big ' + (c || '') }, main), sub ? h('div', { class: 'sub' }, sub) : null);
-    const n = out.length;
-    const from = S.range === 'all' ? 0 : Math.max(0, out.findIndex(x => x.d >= shiftYears(o.d, -(+S.range))));
-    const sl = out.slice(from);
+    const ch = CHARTS.find(c => c[0] === S.chart) || CHARTS[0];
+    const fjol = sameTimeLastYear(utdYtd);
+    const lastLon = out.filter(x => x.lon !== null && x.manKvot !== null && x.manKvot !== undefined).pop();
     return h('div', { class: 'view' },
       paminnelser(),
       h('section', { class: 'hero' },
@@ -180,45 +174,93 @@ window.EKONOMI_VERSION = '1.2.0';
         h('div', { class: 'sub' }, h('span', { class: cls(o.formAr) }, krS(o.formAr)), ' i år'),
         mal ? h('div', { class: 'goal' }, h('div', { class: 'bar' }, h('i', { style: `width:${Math.min(100, o.formogenhet / mal * 100)}%` })),
           h('div', { class: 'sub' }, `${nf1.format(o.formogenhet / mal * 100)} % av målet ${mkr(mal)}`)) : null),
-      h('section', { class: 'card' }, h('h2', {}, 'Avkastning'),
-        h('div', { class: 'grid3' },
-          stat(periodLabel(n - 1), pct(o.X), krS(o.W), cls(o.X)),
-          stat('I år', pct(o.Y), krS(o.U), cls(o.Y)),
-          stat('Totalt', pct(o.P), krS(o.V), cls(o.P))),
-        h('p', { class: 'note' }, `I år på insatt kapital (pengaviktat): ${pct(o.O)}. "Totalt" är avkastat belopp i förhållande till egna insatta pengar.`)),
-      h('section', { class: 'card' }, h('h2', {}, 'Konton'),
-        h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Värde kr'), h('th', {}, 'I år'), h('th', {}, 'Totalt'))),
-          h('tbody', {},
-            [['Avanza', o.Aval, o.avY, o.avTot], ['SAVR', o.Sval, o.svY, o.svTot], [bankNamn(), o.Dval, o.dbY, o.dbTot], ['Kassa', o.kassa, null, null]]
-              .map(([nm, v, y, t]) => h('tr', {}, h('td', {}, nm), h('td', {}, nf0.format(v)), h('td', { class: cls(y) }, y === null ? '' : pct(y)), h('td', { class: cls(t) }, t === null ? '' : pct(t))))),
-          h('tfoot', {}, h('tr', {}, h('td', {}, 'Avanza: aktier / fonder / ETF i år'), h('td', { colspan: 3, class: 'small' }, `${pct(o.aktY)} / ${pct(o.fondY)} / ${pct(o.etfY)}`))))),
-      sparandeKort(o, prevY),
-      h('section', { class: 'card' }, h('div', { class: 'row' }, h('h2', {}, 'Portföljvärde och insatta pengar'),
-        h('div', { class: 'seg' }, [['1', '1 år'], ['3', '3 år'], ['all', 'Allt']].map(([k, l]) => h('button', { class: S.range === k ? 'on' : '', onclick: () => { S.range = k; render(); } }, l)))),
-        lineChart([{ name: 'Portföljvärde', values: sl.map(x => x.N), cls: 'c1', fill: true }, { name: 'Egna insatta pengar', values: sl.map(x => x.K), cls: 'c2' }], sl.map(x => x.d)),
-        h('div', { class: 'legend' }, h('span', {}, h('i', { class: 'dot c1' }), 'Portföljvärde'), h('span', {}, h('i', { class: 'dot c2' }), 'Egna insatta pengar'))),
-      h('section', { class: 'card' }, h('h2', {}, 'Utveckling per år'),
-        barChart(yrs.map(y => y.year + (y === yrs[yrs.length - 1] && o.d.slice(5) < '12-28' ? '*' : '')), yrs.map(y => y.Y)),
-        h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['År', 'Utv.', 'Avkastat kr', 'Sparat kr', 'Utdeln. kr'].map(x => h('th', {}, x)))),
-          h('tbody', {}, yrs.slice().reverse().map(y => h('tr', {}, h('td', {}, y.year), h('td', { class: cls(y.Y) }, pct(y.Y)), h('td', {}, nf0.format(y.U)), h('td', {}, nf0.format(y.sparatAr)), h('td', {}, nf0.format(y.utdAr)))))),
-        h('p', { class: 'note' }, '* pågående år. Utvecklingen är tidsviktad – den påverkas inte av när du sätter in pengar.')),
-      n < 2 ? h('p', { class: 'note' }, 'Lägg in fler veckor för att se utveckling.') : null);
+      card('Avkastning', '#avkastning', h('div', { class: 'grid3' },
+        stat(periodLabel(n - 1), pct(o.X), krS(o.W), cls(o.X)), stat('I år', pct(o.Y), krS(o.U), cls(o.Y)), stat('Totalt', pct(o.P), krS(o.V), cls(o.P)))),
+      card('Konton', null, h('div', { class: 'acclist' },
+        [['avanza', 'Avanza', o.Aval, o.avY], ['savr', 'SAVR', o.Sval, o.svY], ['bank', bankNamn(), o.Dval, o.dbY], ['kassa', 'Kassa', o.kassa, null]]
+          .map(([k, nm, v, y]) => h('a', { class: 'accrow', href: '#konto?k=' + k }, h('span', {}, nm), h('span', {}, kr(v)), h('span', { class: cls(y) }, y === null ? '' : pct(y)), h('span', { class: 'more' }, '›'))))),
+      card('Sparande ' + o.year, '#sparande', h('div', { class: 'grid3' },
+        stat('Sparat i år', kr(o.sparatAr), o.snittMan !== null ? `≈ ${kr(o.snittMan)}/mån` : ''),
+        stat('Sparkvot i år', o.sparkvotAr === null ? '–' : pct(o.sparkvotAr, false), lastLon ? `senaste lönen ${pct(lastLon.manKvot, false)}` : ''),
+        stat('Utdelningar i år', kr(utdYtd(o)), fjol !== null ? `i fjol vid denna tid ${kr(fjol)}` : ''))),
+      card('Fördelning', null, fordelning(o)),
+      h('section', { class: 'card' }, h('div', { class: 'chips' }, CHARTS.map(([k, l]) => h('button', { class: ch[0] === k ? 'on' : '', onclick: () => { S.chart = k; render(); } }, l))),
+        ch[2] ? h('div', { class: 'row end' }, rangeSeg()) : null,
+        G[ch[0]](slice())));
   }
-  function sparandeKort(o, prevY) {
-    const stat = (label, main, sub, c) => h('div', { class: 'stat' }, h('div', { class: 'lbl' }, label), h('div', { class: 'big ' + (c || '') }, main), sub ? h('div', { class: 'sub' }, sub) : null);
-    const lonRader = S.out.filter(x => x.year === o.year && x.lon !== null).reverse();
-    return h('section', { class: 'card' }, h('h2', {}, 'Sparande ' + o.year),
-      h('div', { class: 'grid2' },
-        stat('Sparat i år', kr(o.sparatAr), o.lonAntal ? `${o.lonAntal} löner` : ''),
-        stat('Snittspar per månad', o.snittMan === null ? '–' : kr(o.snittMan), 'sparat i år / antal löner'),
-        stat('Sparkvot i år', o.sparkvotAr === null ? '–' : pct(o.sparkvotAr, false), o.lonAntal ? `av ${kr(o.lonAr)} nettolön` : 'ingen lön inlagd i år'),
-        stat('Utdelningar + återbäring', kr(o.utdAr + o.aterAr), (o.aterAr ? `varav SAVR ${kr(o.aterAr)}` : '') + (prevY ? `${o.aterAr ? ' · ' : ''}i fjol ${kr(prevY.utdAr + prevY.aterAr)}` : ''))),
-      lonRader.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Lönevecka', 'Nettolön', 'Sparat', 'Sparkvot'].map(x => h('th', {}, x)))),
+
+  // ---------------------------------------------------------------- detaljsida: avkastning
+  function viewAvkastning() {
+    const out = S.out, o = out[out.length - 1], sl = slice(), y = yearsDone();
+    return h('div', { class: 'view' }, back(),
+      h('section', { class: 'hero' }, h('div', { class: 'lbl' }, 'Avkastning'), h('div', { class: 'huge ' + cls(o.V) }, krS(o.V)), h('div', { class: 'sub' }, `totalt sedan start · ${pct(o.P)} på egna pengar`)),
+      card(null, null, h('div', { class: 'grid2' },
+        stat(periodLabel(out.length - 1), pct(o.X), krS(o.W), cls(o.X)), stat('I år (tidsviktad)', pct(o.Y), krS(o.U), cls(o.Y)),
+        stat('I år (pengaviktad)', pct(o.O), 'på insatt kapital', cls(o.O)), stat('Totalt', pct(o.P), krS(o.V), cls(o.P)))),
+      card('Utveckling i år', null, G.iAr()),
+      card('Avkastning per vecka', null, h('div', { class: 'row end' }, rangeSeg()), G.vecka(sl)),
+      card('Total avkastning', null, G.total(sl)),
+      card('Utveckling på egna pengar', null, G.utv(sl)),
+      card('Per år', null, G.perAr(), h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['År', 'Tidsviktad', 'Pengaviktad', 'Avkastat'].map(x => h('th', {}, x)))),
+        h('tbody', {}, y.slice().reverse().map(x => h('tr', {}, h('td', {}, x.label), h('td', { class: cls(x.Y) }, pct(x.Y)), h('td', { class: cls(x.O) }, pct(x.O)), h('td', {}, kr(x.U))))))));
+  }
+
+  // ---------------------------------------------------------------- detaljsida: konto
+  const KONTO = {
+    avanza: { name: () => 'Avanza', val: o => o.Aval, own: o => o.Aown, y: o => o.avY, tot: o => o.avTot },
+    savr: { name: () => 'SAVR', val: o => o.Sval, own: o => o.SinvG, y: o => o.svY, tot: o => o.svTot },
+    bank: { name: () => bankNamn(), val: o => o.Dval, own: o => o.Dinv, y: o => o.dbY, tot: o => o.dbTot },
+    kassa: { name: () => 'Kassa', val: o => o.kassa },
+  };
+  function viewKonto(k) {
+    const K = KONTO[k] || KONTO.avanza, out = S.out, o = out[out.length - 1], sl = slice(), nm = K.name();
+    if (k === 'kassa') return h('div', { class: 'view' }, back(),
+      h('section', { class: 'hero' }, h('div', { class: 'lbl' }, 'Kassa'), h('div', { class: 'huge' }, kr(o.kassa)), h('div', { class: 'sub' }, 'lönekonto, buffert och sparkonto')),
+      card('Kassa över tid', null, h('div', { class: 'row end' }, rangeSeg()), C.line(sl.map(x => x.d), [{ name: 'Kassa', values: sl.map(x => x.kassa), cls: 'c3', fill: true }])),
+      card('Andel av förmögenheten', null, C.line(sl.map(x => x.d), [{ name: 'Andel', values: sl.map(x => x.formogenhet ? x.kassa / x.formogenhet : null), cls: 'c3' }], { kind: 'pct' })));
+    const yrs = yearsDone().filter(y => (K.val(y) || 0) > 0 || K.y(y));
+    const avk = K.val(o) - K.own(o);
+    return h('div', { class: 'view' }, back(),
+      h('section', { class: 'hero' }, h('div', { class: 'lbl' }, nm), h('div', { class: 'huge' }, kr(K.val(o))), h('div', { class: 'sub' }, h('span', { class: cls(K.y(o)) }, pct(K.y(o))), ' i år')),
+      card(null, null, h('div', { class: 'grid2' }, stat('I år', pct(K.y(o)), null, cls(K.y(o))), stat('Totalt', pct(K.tot(o)), null, cls(K.tot(o))),
+        stat('Egna insatta pengar', kr(K.own(o))), stat('Avkastat totalt', krS(avk), null, cls(avk)))),
+      k === 'avanza' ? card('Fördelning', null, C.donut([{ name: 'Aktier', value: o.aav, cls: 'c1' }, { name: 'Fonder', value: o.afv, cls: 'c3' }, { name: 'ETF', value: o.aev, cls: 'c2' }], { center: [C.mkr(o.Aval), 'Avanza'] }),
+        h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['', 'Värde', 'I år'].map(x => h('th', {}, x)))), h('tbody', {},
+          [['Aktier', o.aav, o.aktY], ['Fonder', o.afv, o.fondY], ['ETF', o.aev, o.etfY]].map(([a, v, y]) => h('tr', {}, h('td', {}, a), h('td', {}, kr(v)), h('td', { class: cls(y) }, pct(y)))))),
+        h('div', { class: 'btns' }, h('a', { class: 'ghost btn', href: '#innehav' }, 'Visa innehav, GAV och utdelningar'))) : null,
+      card('Värde och insatta pengar', null, h('div', { class: 'row end' }, rangeSeg()),
+        C.line(sl.map(x => x.d), [{ name: 'Värde', values: sl.map(K.val), cls: 'c1', fill: true }, { name: 'Egna insatta pengar', values: sl.map(K.own), cls: 'c2', dash: true }]),
+        legend([['c1', 'Värde'], ['c2', 'Egna insatta pengar']])),
+      card('Avkastat över tid', null, C.timeBars(sl.map(x => x.d), sl.map(x => K.val(x) - K.own(x)), { name: 'Avkastat', cls: 'c1' })),
+      card('Utveckling per år', null, C.bars(yrs.map(y => y.label), [{ name: nm, values: yrs.map(K.y) }], { kind: 'pct', labels: true })));
+  }
+
+  // ---------------------------------------------------------------- detaljsida: sparande
+  function viewSparande() {
+    const out = S.out, o = out[out.length - 1], y = yearsDone();
+    const lastLon = out.filter(x => x.lon !== null && x.manKvot !== null && x.manKvot !== undefined).pop();
+    const fjolSp = sameTimeLastYear('sparatAr'), fjolUtd = sameTimeLastYear(utdYtd);
+    const lonRader = out.filter(x => x.year === o.year && x.lon !== null).reverse();
+    return h('div', { class: 'view' }, back(),
+      h('section', { class: 'hero' }, h('div', { class: 'lbl' }, 'Sparat ' + o.year), h('div', { class: 'huge' }, kr(o.sparatAr)),
+        h('div', { class: 'sub' }, fjolSp !== null ? `i fjol vid denna tid ${kr(fjolSp)}` : '')),
+      card(null, null, h('div', { class: 'grid2' },
+        stat('Snittspar per månad', o.snittMan === null ? '–' : kr(o.snittMan), o.lonAntal ? `${o.lonAntal} löner i år` : ''),
+        stat('Sparkvot i år', o.sparkvotAr === null ? '–' : pct(o.sparkvotAr, false), o.lonAntal ? `av ${kr(o.lonAr)} nettolön` : ''),
+        stat('Senaste lönen', lastLon ? pct(lastLon.manKvot, false) : '–', lastLon ? `${kr(lastLon.manSparat)} av ${kr(lastLon.lon)}` : ''),
+        stat('Utdelningar i år', kr(utdYtd(o)), fjolUtd !== null ? `i fjol vid denna tid ${kr(fjolUtd)}` : ''))),
+      card('Nettoårsinkomst och sparkvot', null, G.inkomst()),
+      card('Sparande i år jämfört med tidigare år', null, C.yearLines(yearSeries(x => x.sparatAr))),
+      card('Utdelningar per år', null, C.bars(y.map(x => x.label), [{ name: 'Utdelningar', values: y.map(utdYtd), cls: 'c2' }], { labels: true })),
+      card('Utdelningar i år jämfört med tidigare år', null, C.yearLines(yearSeries(utdYtd))),
+      lonRader.length ? card('Per lön ' + o.year, null, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Lönevecka', 'Nettolön', 'Sparat', 'Sparkvot'].map(x => h('th', {}, x)))),
         h('tbody', {}, lonRader.map(x => h('tr', {}, h('td', {}, dstr(x.d).replace(/ \d{4}$/, '')), h('td', {}, nf0.format(x.lon)),
-          h('td', { class: cls(x.manSparat) }, x.manSparat === null ? '–' : nf0.format(x.manSparat)), h('td', {}, x.manKvot === null ? '–' : pct(x.manKvot, false)))))) : null,
-      h('p', { class: 'note' }, 'Sparat = ökningen av egna insatta pengar + kassa sedan förra lönen. Sparkvot = sparat / nettolön.'));
+          h('td', { class: cls(x.manSparat) }, x.manSparat === null ? '–' : nf0.format(x.manSparat)), h('td', {}, x.manKvot === null ? '–' : pct(x.manKvot, false))))))) : null,
+      card('Per år', null, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['År', 'Nettoinkomst', 'Sparat', 'Kvot', 'Utdeln.'].map(x => h('th', {}, x)))),
+        h('tbody', {}, y.slice().reverse().map(x => h('tr', {}, h('td', {}, x.label), h('td', {}, x.lonAr ? nf0.format(x.lonAr) : '–'), h('td', { class: cls(x.sparatAr) }, nf0.format(x.sparatAr)),
+          h('td', {}, x.sparkvotAr === null ? '–' : pct(x.sparkvotAr, false)), h('td', {}, nf0.format(utdYtd(x)))))))));
   }
-  // påminnelse om lön som kommit efter senaste inlagda vecka
+
   function periodLabel(i) {
     if (i < 1) return 'Senaste veckan';
     const dd = daysBetween(S.out[i - 1].d, S.out[i].d);
@@ -244,13 +286,13 @@ window.EKONOMI_VERSION = '1.2.0';
   const shiftYears = (d, y) => (+d.slice(0, 4) + y) + d.slice(4);
 
   const FIELDS = () => [
-    ['Kassa', [['kassa', 'Lönekonto + buffert', 'value']]],
+    ['Kassa', [['kassa', 'Lönekonto + buffert', 'value'], ['kassa2', 'Avanza sparkonto', 'opt']]],
     ['Avanza – värde', [['av.av', 'Aktier', 'value'], ['av.fv', 'Fonder', 'value'], ['av.ev', 'ETF', 'value']]],
-    ['Avanza – insatt denna vecka', [['av.ai', 'Aktier', 'flow'], ['av.fi', 'Fonder', 'flow'], ['av.ei', 'ETF', 'flow'], ['av.utd', 'Utdelning som kommit in', 'flow']]],
+    ['Avanza – insatt denna vecka', [['av.ai', 'Aktier', 'flow'], ['av.fi', 'Fonder', 'flow'], ['av.ei', 'ETF', 'flow'], ['av.utd', 'Utdelningar (efter källskatt)', 'flow'], ['av.avg', 'Skatt, avgifter & ränta', 'flow']]],
     ['SAVR', [['sv.val', 'Fondvärde', 'value'], ['sv.inv', 'Insatt denna vecka (egna pengar)', 'flow'], ['sv.ater', 'Återbäring', 'flow']]],
     [bankNamn(), [['db.val', 'Fondvärde', 'value'], ['db.inv', 'Insatt denna vecka', 'flow']]],
   ];
-  const ADV = () => [['av.vinst', 'Avanza – realiserad vinst vid försäljning'], ['db.vinst', bankNamn() + ' – realiserad vinst vid försäljning']];
+  const ADV = () => [['av.vinst', 'Avanza – realiserad vinst (behövs inte om insatt = köp − sälj)'], ['db.vinst', bankNamn() + ' – realiserad vinst vid försäljning']];
   const getP = (o, p) => p.split('.').reduce((a, k) => a == null ? undefined : a[k], o);
   const setP = (o, p, v) => { const k = p.split('.'); let a = o; for (let i = 0; i < k.length - 1; i++) a = a[k[i]] = a[k[i]] || {}; a[k[k.length - 1]] = v; };
 
@@ -260,14 +302,40 @@ window.EKONOMI_VERSION = '1.2.0';
     const prev = editing ? rows[rows.indexOf(editing) - 1] : rows[rows.length - 1];
     const form = h('form', { class: 'view form', onsubmit: ev => { ev.preventDefault(); submit(); } });
     const inputs = {};
-    const fmtIn = v => (v === undefined || v === null || v === 0) ? '' : String(v).replace('.', ',');
+    const fmtIn = v => (v === undefined || v === null || v === 0) ? '' : nf2.format(v);
     const field = (path, label, kind) => {
       const ph = kind === 'value' && prev ? 'förra: ' + nf0.format(getP(prev, path) || 0) : '0';
-      const inp = h('input', { inputmode: 'decimal', autocomplete: 'off', placeholder: ph, value: editing ? fmtIn(getP(editing, path)) : '', 'data-kind': kind, oninput: preview });
+      const inp = h('input', { inputmode: 'decimal', autocomplete: 'off', placeholder: ph, value: editing ? fmtIn(getP(editing, path)) : '', 'data-kind': kind, oninput: ev => { delete ev.target.dataset.auto; preview(); } });
       inputs[path] = inp;
       return h('label', { class: 'fld' }, h('span', {}, label), inp, kind === 'value' && prev ? h('button', { type: 'button', class: 'mini', title: 'Samma som förra veckan', onclick: () => { inp.value = fmtIn(getP(prev, path)); preview(); } }, '↺') : h('span', { class: 'mini' }));
     };
-    const date = h('input', { type: 'date', value: editing ? editing.d : today(), max: today(), required: true, oninput: preview });
+    const date = h('input', { type: 'date', value: editing ? editing.d : today(), max: today(), required: true, oninput: () => { autoFill(false); preview(); } });
+    let kassa2Row = null;
+    const autoInfo = h('div', { class: 'auto' });
+    const csvIn = h('input', { type: 'file', accept: '.csv,text/csv', style: 'display:none', onchange: async ev => { await avImportCSV(ev.target.files[0]); autoFill(false); preview(); } });
+    // Avanza: fyll i insatt/utdelningar från importerade transaktioner (fält du själv ändrat lämnas orörda)
+    function autoFill(force) {
+      if (!AV.loaded || !AV.an || !date.value) { renderAuto(null); return; }
+      const prevD = rows.filter(x => x.d < date.value && x !== editing).map(x => x.d).pop() || shiftDays(date.value, -7);
+      const ex = ((S.data.settings || {}).avanzaEx) || [];
+      const f = Avanza.weekFlows(AV.data.tx, AV.an, AV.data.holdings, prevD, date.value, ex);
+      if (!editing || force) {
+        [['av.ai', f.aktie], ['av.fi', f.fond], ['av.ei', f.etf], ['av.utd', f.utd], ['av.avg', f.avg], ['kassa2', f.sparkonto]].forEach(([p, v]) => {
+          const inp = inputs[p]; if (!inp) return;
+          if (force || inp.value.trim() === '' || inp.dataset.auto) { inp.value = v ? fmtIn(v) : ''; inp.dataset.auto = '1'; }
+        });
+      }
+      renderAuto({ f, prevD });
+    }
+    function renderAuto(x) {
+      autoInfo.innerHTML = '';
+      const last = AV.an ? AV.an.lastDate : null;
+      if (x) autoInfo.append(h('p', { class: 'note' }, `Ifyllt från Avanza-transaktionerna ${dstr(x.prevD)} – ${dstr(date.value)} (${x.f.n} st). Senaste transaktion i filen: ${last ? dstr(last) : '–'}. Du kan ändra värdena.`),
+        ...(last && last < x.prevD ? [h('p', { class: 'warn' }, 'Filen saknar transaktioner för den här perioden – importera en ny export om du har handlat.')] : []));
+      else autoInfo.append(h('p', { class: 'note' }, AV.loaded ? 'Fyll i själv, eller importera Avanzas transaktionsexport så fylls fälten i automatiskt.' : 'Hämtar Avanza-transaktioner…'));
+      autoInfo.append(csvIn, h('div', { class: 'btns' }, h('button', { type: 'button', class: 'ghost small', onclick: () => csvIn.click() }, 'Importera transaktioner (CSV)'),
+        x && editing ? h('button', { type: 'button', class: 'ghost small', onclick: () => { autoFill(true); preview(); } }, 'Fyll i från transaktionerna') : null));
+    }
     const yearEnd = h('input', { type: 'checkbox', onchange: () => preview() });
     const yearEndBox = h('label', { class: 'chk', style: 'display:none' }, yearEnd, h('span', {}, ''));
     form.append(h('section', { class: 'card' }, h('h2', {}, editing ? 'Ändra vecka' : 'Ny vecka'), h('label', { class: 'fld' }, h('span', {}, 'Datum för avläsningen'), date),
@@ -278,11 +346,17 @@ window.EKONOMI_VERSION = '1.2.0';
         let box = null;
         const btn = h('button', { type: 'button', class: 'linkbtn', onclick: () => {
           if (box) { box.remove(); box = null; return; }
-          box = pasteBox(res => { const t = res.totals; inputs['av.av'].value = fmtIn(Math.round(t.aktie)); inputs['av.fv'].value = fmtIn(Math.round(t.fond)); inputs['av.ev'].value = fmtIn(Math.round(t.etf)); box.remove(); box = null; preview(); },
-            'Värdena för aktier, fonder och ETF fylls i, och kurserna under Innehav uppdateras.');
+          box = pasteBox(res => {
+            const t = res.totals, ex = ((S.data.settings || {}).avanzaEx) || [], x = AV.an ? Avanza.excludedValues(AV.an, AV.data.holdings, ex) : { aktie: 0, fond: 0, etf: 0 };
+            inputs['av.av'].value = fmtIn(Math.round(t.aktie - x.aktie)); inputs['av.fv'].value = fmtIn(Math.round(t.fond - x.fond)); inputs['av.ev'].value = fmtIn(Math.round(t.etf - x.etf));
+            if (x.aktie + x.fond + x.etf) toast(`${kr(x.aktie + x.fond + x.etf)} på avstängda konton är borträknat`, 'ok');
+            box.remove(); box = null; preview(); },
+            'Värdena för aktier, fonder och ETF fylls i (konton du stängt av räknas bort), och kurserna under Innehav uppdateras.');
           sec.append(box); } }, 'Klistra in innehavslistan från Avanza');
         sec.append(btn);
       }
+      if (title === 'Avanza – insatt denna vecka') sec.append(autoInfo);
+      if (title === 'Kassa') kassa2Row = inputs.kassa2.closest('label');
       form.append(sec);
     });
     // Lön: visas när en lönedag (25:e, lör -> 24:e, sön -> 26:e) infaller sedan förra veckan
@@ -325,6 +399,7 @@ window.EKONOMI_VERSION = '1.2.0';
       return { prevD, ye: (y - 1) + '-12-31' };
     }
     function preview() {
+      if (kassa2Row) kassa2Row.style.display = (inputs.kassa2.value.trim() && parseNum(inputs.kassa2.value) !== 0) ? '' : 'none';
       const ye = yearEndInfo();
       yearEndBox.style.display = ye ? '' : 'none'; if (!ye) yearEnd.checked = false;
       if (ye) yearEndBox.lastChild.textContent = `Ingen avläsning finns runt årsskiftet (senaste är ${dstr(ye.prevD)}). Spara samma värden även som 31 december, så att avkastningen hittills räknas till ${ye.ye.slice(0, 4)}.`;
@@ -363,7 +438,7 @@ window.EKONOMI_VERSION = '1.2.0';
       if (!confirm(`Ta bort veckan ${dstr(editing.d)}?`)) return;
       if (await commit(d => { d.rows = d.rows.filter(x => x.d !== editing.d); }, 'Veckan är borttagen')) location.hash = '#historik';
     }
-    setTimeout(preview, 0);
+    setTimeout(() => { if (AV.loaded) autoFill(false); else avLoad().then(() => { autoFill(false); preview(); }); preview(); }, 0);
     return form;
   }
 
@@ -451,7 +526,7 @@ window.EKONOMI_VERSION = '1.2.0';
         cur.map(row).flat(),
         h('p', { class: 'note pad2' }, 'Värde och "sedan köp" kommer från Avanzas lista. Total avk. = (värde + sålt + utdelningar − köpt) / köpt, för hela tiden du ägt aktien.')),
       h('section', { class: 'card' }, h('h2', {}, 'Utdelningar och resultat per år'),
-        yrs.length ? barChartKr(yrs.map(y => String(y.year)), yrs.map(y => y.utdNetto)) : null,
+        yrs.length ? C.bars(yrs.map(y => String(y.year)), [{ name: 'Utdelningar netto', values: yrs.map(y => y.utdNetto), cls: 'c2' }], { labels: true }) : null,
         h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['År', 'Utdelning', 'Källskatt', 'Realiserat', 'Skatt/avg.'].map(x => h('th', {}, x)))),
           h('tbody', {}, an.years.slice().reverse().map(y => h('tr', {}, h('td', {}, y.year), h('td', {}, nf0.format(y.utd)), h('td', {}, nf0.format(y.kallskatt)),
             h('td', { class: cls(y.realiserat) }, nf0.format(y.realiserat)), h('td', {}, nf0.format(y.skatt)))))),
@@ -468,15 +543,6 @@ window.EKONOMI_VERSION = '1.2.0';
     return h('details', { class: 'txl' }, h('summary', {}, `Transaktioner (${list.length})`),
       h('table', { class: 'tbl small' }, h('tbody', {}, list.slice(0, 150).map(t => h('tr', {}, h('td', {}, t.d), h('td', {}, t.typ), h('td', {}, t.antal === null ? '' : nf2.format(t.antal)), h('td', {}, t.belopp === null ? '' : nf0.format(t.belopp)))))));
   }
-  function barChartKr(labels, values) {
-    const W = chartW(), H = 170, L = 50, R = 8, T = 16, B = 22, hi = Math.max(1, ...values), step = niceStep(hi / 4), top = Math.ceil(hi / step) * step;
-    const y = v => T + (H - T - B) * (1 - v / top), bw = (W - L - R) / labels.length; let g = '';
-    for (let v = 0; v <= top + step / 2; v += step) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${L - 6}" y="${y(v) + 4}" class="ax" text-anchor="end">${mkr(v)}</text>`;
-    labels.forEach((l, i) => { const x0 = L + i * bw + bw * .18, w = bw * .64, v = Math.max(0, values[i]);
-      g += `<rect x="${x0}" y="${y(v)}" width="${w}" height="${y(0) - y(v)}" class="bar pos" rx="3"/><text x="${x0 + w / 2}" y="${y(v) - 4}" class="ax val" text-anchor="middle">${mkr(values[i])}</text><text x="${x0 + w / 2}" y="${H - 6}" class="ax" text-anchor="middle">${l}</text>`; });
-    return h('div', { class: 'chart', html: `<svg viewBox="0 0 ${W} ${H}">${g}</svg>` });
-  }
-
   function viewHistory() {
     const out = S.out.slice().reverse();
     let shown = 60;
@@ -522,6 +588,7 @@ window.EKONOMI_VERSION = '1.2.0';
         h('label', { class: 'fld' }, h('span', {}, 'Namn på banken'), bankIn),
         h('div', { class: 'btns' }, h('button', { class: 'ghost', onclick: () => { const v = parseNum(malIn.value); if (!isFinite(v)) return toast('Ogiltigt belopp', 'err');
           const b = bankIn.value.trim(); commit(d => { d.settings = d.settings || {}; d.settings.mal = v; if (b) d.settings.bank = b; else delete d.settings.bank; }, 'Inställningarna är sparade'); } }, 'Spara'))),
+      kontoKort(),
       h('section', { class: 'card' }, h('h2', {}, 'Importera'),
         h('p', { class: 'note' }, 'Ersätter all data med innehållet i en JSON-fil (t.ex. startdatan från Excel eller en nedladdad rådatafil).'),
         file, h('div', { class: 'btns' }, h('button', { class: 'ghost', onclick: () => file.click() }, 'Välj fil…'))),
@@ -538,6 +605,20 @@ window.EKONOMI_VERSION = '1.2.0';
       h('p', { class: 'note pad' }, 'Version ' + (window.EKONOMI_VERSION || '')));
   }
 
+  function kontoKort() {
+    if (!AV.loaded) { avLoad().then(() => { if (location.hash.startsWith('#mer')) render(); }); return null; }
+    if (!AV.data || !(AV.data.tx || []).length) return null;
+    const ex = new Set(((S.data.settings || {}).avanzaEx) || []);
+    const accs = Avanza.accounts(AV.data.tx), boxes = {};
+    return h('section', { class: 'card' }, h('h2', {}, 'Avanza-konton'),
+      h('p', { class: 'note' }, 'Välj vilka konton som räknas med i förmögenheten. Avstängda konton räknas bort när veckans värden och insättningar fylls i automatiskt (de syns fortfarande under Innehav).'),
+      accs.map(a => { const cb = h('input', { type: 'checkbox', checked: ex.has(a.konto) ? null : true }); boxes[a.konto] = cb;
+        const val = a.kind === 'sparkonto' ? `sparkonto · saldo ${kr(a.cash)}` : `värdepapper${AV.data.holdings && AV.an ? ' · värde ' + kr(Object.values(Avanza.excludedValues(AV.an, AV.data.holdings, [a.konto])).reduce((x, y) => x + y, 0)) : ''}`;
+        return h('label', { class: 'acc' }, cb, h('span', {}, h('b', {}, a.konto), h('small', {}, `${val} · senast ${dstr(a.last)}`))); }),
+      h('div', { class: 'btns' }, h('button', { class: 'ghost', onclick: () => {
+        const list = Object.entries(boxes).filter(([k, cb]) => !cb.checked).map(([k]) => k);
+        commit(d => { d.settings = d.settings || {}; d.settings.avanzaEx = list; }, 'Kontoinställningen är sparad'); } }, 'Spara')));
+  }
   async function importFile(f) {
     if (!f) return;
     try {
@@ -575,7 +656,8 @@ window.EKONOMI_VERSION = '1.2.0';
     const main = $('#main'); const hash = location.hash || '#oversikt';
     const [route, qs] = hash.slice(1).split('?');
     const nav = $('#nav'); nav.style.display = '';
-    document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + route));
+    const navR = ['avkastning', 'sparande', 'konto'].includes(route) ? 'oversikt' : route;
+    document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + navR));
     $('#status').textContent = S.busy ? 'Sparar…' : S.offline ? 'Offline – visar sparad kopia' : Store.isDemo() ? 'Demoläge' : '';
     let v;
     if (S.needLogin) { v = viewLogin(S.loginMsg); nav.style.display = 'none'; }
@@ -584,6 +666,9 @@ window.EKONOMI_VERSION = '1.2.0';
     else if (!S.data.rows.length) v = viewEmpty();
     else if (route === 'historik') v = viewHistory();
     else if (route === 'innehav') v = viewInnehav();
+    else if (route === 'avkastning') v = viewAvkastning();
+    else if (route === 'sparande') v = viewSparande();
+    else if (route === 'konto') v = viewKonto(new URLSearchParams(qs || '').get('k'));
     else if (route === 'mer') v = viewMore();
     else v = viewOverview();
     // behåll formulär vid omritning medan man skriver
@@ -591,6 +676,7 @@ window.EKONOMI_VERSION = '1.2.0';
       const btn = main.querySelector('button[type=submit]'); if (btn) { btn.disabled = S.busy; btn.textContent = S.busy ? 'Sparar…' : 'Spara'; } return;
     }
     main.dataset.route = hash; main.replaceChildren(v);
+    const on = main.querySelector('.chips button.on'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
   let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (!location.hash.startsWith('#ny')) render(); }, 250); });
   window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
