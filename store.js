@@ -6,7 +6,7 @@
   const AUTH = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';
   const GRAPH = 'https://graph.microsoft.com/v1.0/me/drive/special/approot';
   const SCOPE = 'openid profile offline_access https://graph.microsoft.com/Files.ReadWrite.AppFolder';
-  const DATAFILE = 'ekonomi-data.json';
+  const DATAFILE = 'ekonomi-data.json', AVZFILE = 'ekonomi-avanza.json';
   const LS = { tok: 'ek.tokens', pkce: 'ek.pkce', cache: 'ek.cache', demo: 'ek.demo', silentTried: 'ek.silent' };
 
   const redirectUri = () => location.origin + location.pathname.replace(/index\.html$/, '');
@@ -81,21 +81,21 @@
     const r = await fetch(GRAPH + path, { ...opt, headers: { Authorization: 'Bearer ' + tk, ...(opt.headers || {}) } });
     return r;
   }
-  async function loadRemote() {
-    const meta = await g(`:/${DATAFILE}`);
+  async function loadRemote(file = DATAFILE) {
+    const meta = await g(`:/${file}`);
     if (meta.status === 404) return { data: null, etag: null };
     if (!meta.ok) throw new Error('Kunde inte läsa från OneDrive (' + meta.status + ')');
     const m = await meta.json();
     let r = m['@microsoft.graph.downloadUrl'] ? await fetch(m['@microsoft.graph.downloadUrl']).catch(() => null) : null;
-    if (!r || !r.ok) r = await g(`:/${DATAFILE}:/content`);
+    if (!r || !r.ok) r = await g(`:/${file}:/content`);
     if (!r.ok) throw new Error('Kunde inte hämta datafilen (' + r.status + ')');
     const data = await r.json();
     return { data, etag: m.eTag, modified: m.lastModifiedDateTime };
   }
-  async function saveRemote(data, etag) {
+  async function saveRemote(data, etag, file = DATAFILE) {
     const h = { 'Content-Type': 'application/json' };
     if (etag) h['If-Match'] = etag;
-    const r = await g(`:/${DATAFILE}:/content`, { method: 'PUT', headers: h, body: JSON.stringify(data) });
+    const r = await g(`:/${file}:/content`, { method: 'PUT', headers: h, body: JSON.stringify(data) });
     if (r.status === 412) { const e = new Error('Datan har ändrats från en annan enhet. Den har laddats om – gör om ändringen.'); e.conflict = true; throw e; }
     if (!r.ok) throw new Error('Kunde inte spara till OneDrive (' + r.status + ')');
     const j = await r.json();
@@ -122,7 +122,16 @@
       setJ(LS.cache, { data, etag: e, at: Date.now() });
       return e;
     },
-    async saveFile(name, blob) { if (isDemo()) return false; await putFile(name, blob); return true; }
+    async saveFile(name, blob) { if (isDemo()) return false; await putFile(name, blob); return true; },
+    // Avanza-transaktioner och innehav i en egen fil (större, ändras sällan)
+    async loadAvanza() {
+      if (isDemo()) return { data: getJ(LS.demo + '.avanza'), etag: 'demo' };
+      return loadRemote(AVZFILE);
+    },
+    async saveAvanza(data, etag) {
+      if (isDemo()) { setJ(LS.demo + '.avanza', data); return 'demo'; }
+      return saveRemote(data, etag, AVZFILE);
+    }
   };
   root.Store = Store;
 })(this);

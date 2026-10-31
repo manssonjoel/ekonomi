@@ -1,5 +1,5 @@
 /* Ekonomi – appens gränssnitt */
-window.EKONOMI_VERSION = '1.1.0';
+window.EKONOMI_VERSION = '1.2.0';
 (function () {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
@@ -64,7 +64,9 @@ window.EKONOMI_VERSION = '1.1.0';
     } finally { S.busy = false; render(); }
   }
   async function reload() {
-    const r = await Store.load(); S.data = r.data; S.etag = r.etag; S.syncedAt = Date.now(); recompute();
+    const r = await Store.load(); S.data = r.data; S.etag = r.etag; S.syncedAt = Date.now();
+    if (S.data && Calc.migrate(S.data)) { recompute(); await commit(() => { }, null); }
+    recompute();
   }
 
   // ---------------------------------------------------------------- Excel-backup
@@ -73,8 +75,8 @@ window.EKONOMI_VERSION = '1.1.0';
     const P = v => ({ v, f: 'pct' }), K = v => ({ v, f: 'kr' });
     const B = bankNamn();
     const head = ['Datum', 'Kassa', 'Avanza insatt aktier', 'Avanza insatt fonder', 'Avanza insatt ETF', 'Avanza värde aktier', 'Avanza värde fonder',
-      'Avanza värde ETF', 'Utdelning', 'Avanza realiserad vinst', B + ' insatt', B + ' värde', B + ' realiserad vinst', 'SAVR insatt', 'SAVR värde',
-      'SAVR återbetald avgift', 'Nettolön', 'Totalt värde', 'Egna insatta pengar', 'Avkastat totalt', 'Avkastning veckan', 'Utveckling veckan',
+      'Avanza värde ETF', 'Utdelning', 'Avanza realiserad vinst', B + ' insatt', B + ' värde', B + ' realiserad vinst', 'SAVR insatt (egna pengar)', 'SAVR värde',
+      'SAVR återbäring', 'Nettolön', 'Totalt värde', 'Egna insatta pengar', 'Avkastat totalt', 'Avkastning veckan', 'Utveckling veckan',
       'Utveckling i år (tidsviktad)', 'Utveckling i år (pengaviktad)', 'Avkastat i år', 'Totalt på egna pengar', 'Förmögenhet', 'Sparat i år',
       'Avanza i år', B + ' i år', 'SAVR i år', 'Sparat sedan förra lönen', 'Sparkvot (månad)', 'Snittspar per månad i år'];
     const wk = [head].concat(rows.map((r, i) => { const o = out[i], a = r.av || {}, d = r.db || {}, s = r.sv || {};
@@ -88,7 +90,15 @@ window.EKONOMI_VERSION = '1.1.0';
       ['Bladet "Veckor" innehåller all rådata (kolumn A–Q) och de uträknade värdena.'],
       ['Rådatan räcker för att återskapa allt. Originalfilen Joel_Ekonomi.xlsm innehåller historiken med formler.']];
     return XLSX.build([{ name: 'Veckor', rows: wk, widths: [11].concat(Array(33).fill(14)) }, { name: 'År', rows: yr, widths: [8].concat(Array(13).fill(16)) },
-      { name: 'Info', rows: info, widths: [100] }]);
+      ...(AV.an ? avSheets() : []), { name: 'Info', rows: info, widths: [100] }]);
+  }
+  function avSheets() {
+    const K = v => ({ v, f: 'kr' }), P = v => ({ v, f: 'pct' }), an = AV.an;
+    const hold = [['Namn', 'Typ', 'Antal', 'GAV', 'Senaste kurs', 'Värde', 'Anskaffningsvärde', 'Sedan köp', 'Sedan köp %', 'Utdelningar', 'Köpt totalt', 'Sålt totalt', 'Total avkastning']]
+      .concat(an.current.map(c => [c.name, c.typ || '', c.qty, c.gav, c.senast, K(c.varde), K(c.ansk), K(c.sedanKop), P(c.sedanKopPct), K(c.utd), K(c.kopt), K(c.salt), P(c.total)]));
+    const cl = [['Namn', 'Sålt', 'Köpt för', 'Sålt för', 'Resultat', 'Utdelningar', 'Total avkastning']].concat(an.closed.map(c => [c.name, { date: c.last }, K(c.kopt), K(c.salt), K(c.resultat), K(c.utd), P(c.total)]));
+    const yr = [['År', 'Utdelningar', 'Källskatt', 'Realiserat resultat', 'Skatt och avgifter']].concat(an.years.map(y => [y.year, K(y.utd), K(y.kallskatt), K(y.realiserat), K(y.skatt)]));
+    return [{ name: 'Innehav', rows: hold, widths: [34].concat(Array(12).fill(14)) }, { name: 'Avslutade', rows: cl, widths: [34, 11].concat(Array(5).fill(14)) }, { name: 'Utdelningar', rows: yr, widths: [8, 14, 14, 18, 18] }];
   }
   async function backup(manual) {
     if (!S.data || !S.data.rows.length) return;
@@ -202,7 +212,7 @@ window.EKONOMI_VERSION = '1.1.0';
         stat('Sparat i år', kr(o.sparatAr), o.lonAntal ? `${o.lonAntal} löner` : ''),
         stat('Snittspar per månad', o.snittMan === null ? '–' : kr(o.snittMan), 'sparat i år / antal löner'),
         stat('Sparkvot i år', o.sparkvotAr === null ? '–' : pct(o.sparkvotAr, false), o.lonAntal ? `av ${kr(o.lonAr)} nettolön` : 'ingen lön inlagd i år'),
-        stat('Utdelningar i år', kr(o.utdAr), prevY ? `i fjol ${kr(prevY.utdAr)}` : '')),
+        stat('Utdelningar + återbäring', kr(o.utdAr + o.aterAr), (o.aterAr ? `varav SAVR ${kr(o.aterAr)}` : '') + (prevY ? `${o.aterAr ? ' · ' : ''}i fjol ${kr(prevY.utdAr + prevY.aterAr)}` : ''))),
       lonRader.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Lönevecka', 'Nettolön', 'Sparat', 'Sparkvot'].map(x => h('th', {}, x)))),
         h('tbody', {}, lonRader.map(x => h('tr', {}, h('td', {}, dstr(x.d).replace(/ \d{4}$/, '')), h('td', {}, nf0.format(x.lon)),
           h('td', { class: cls(x.manSparat) }, x.manSparat === null ? '–' : nf0.format(x.manSparat)), h('td', {}, x.manKvot === null ? '–' : pct(x.manKvot, false)))))) : null,
@@ -237,10 +247,10 @@ window.EKONOMI_VERSION = '1.1.0';
     ['Kassa', [['kassa', 'Lönekonto + buffert', 'value']]],
     ['Avanza – värde', [['av.av', 'Aktier', 'value'], ['av.fv', 'Fonder', 'value'], ['av.ev', 'ETF', 'value']]],
     ['Avanza – insatt denna vecka', [['av.ai', 'Aktier', 'flow'], ['av.fi', 'Fonder', 'flow'], ['av.ei', 'ETF', 'flow'], ['av.utd', 'Utdelning som kommit in', 'flow']]],
-    ['SAVR', [['sv.val', 'Fondvärde', 'value'], ['sv.inv', 'Insatt denna vecka', 'flow']]],
+    ['SAVR', [['sv.val', 'Fondvärde', 'value'], ['sv.inv', 'Insatt denna vecka (egna pengar)', 'flow'], ['sv.ater', 'Återbäring', 'flow']]],
     [bankNamn(), [['db.val', 'Fondvärde', 'value'], ['db.inv', 'Insatt denna vecka', 'flow']]],
   ];
-  const ADV = () => [['av.vinst', 'Avanza – realiserad vinst vid försäljning'], ['db.vinst', bankNamn() + ' – realiserad vinst vid försäljning'], ['sv.ater', 'SAVR – återbetald avgift']];
+  const ADV = () => [['av.vinst', 'Avanza – realiserad vinst vid försäljning'], ['db.vinst', bankNamn() + ' – realiserad vinst vid försäljning']];
   const getP = (o, p) => p.split('.').reduce((a, k) => a == null ? undefined : a[k], o);
   const setP = (o, p, v) => { const k = p.split('.'); let a = o; for (let i = 0; i < k.length - 1; i++) a = a[k[i]] = a[k[i]] || {}; a[k[k.length - 1]] = v; };
 
@@ -262,14 +272,26 @@ window.EKONOMI_VERSION = '1.1.0';
     const yearEndBox = h('label', { class: 'chk', style: 'display:none' }, yearEnd, h('span', {}, ''));
     form.append(h('section', { class: 'card' }, h('h2', {}, editing ? 'Ändra vecka' : 'Ny vecka'), h('label', { class: 'fld' }, h('span', {}, 'Datum för avläsningen'), date),
       h('p', { class: 'note' }, 'Använd dagens datum, även om du är sen – värdena gäller den dag du läser av dem.'), yearEndBox));
-    FIELDS().forEach(([title, fl]) => form.append(h('section', { class: 'card' }, h('h3', {}, title), fl.map(f => field(...f)))));
+    FIELDS().forEach(([title, fl]) => {
+      const sec = h('section', { class: 'card' }, h('h3', {}, title), fl.map(f => field(...f)));
+      if (title === 'Avanza – värde') {
+        let box = null;
+        const btn = h('button', { type: 'button', class: 'linkbtn', onclick: () => {
+          if (box) { box.remove(); box = null; return; }
+          box = pasteBox(res => { const t = res.totals; inputs['av.av'].value = fmtIn(Math.round(t.aktie)); inputs['av.fv'].value = fmtIn(Math.round(t.fond)); inputs['av.ev'].value = fmtIn(Math.round(t.etf)); box.remove(); box = null; preview(); },
+            'Värdena för aktier, fonder och ETF fylls i, och kurserna under Innehav uppdateras.');
+          sec.append(box); } }, 'Klistra in innehavslistan från Avanza');
+        sec.append(btn);
+      }
+      form.append(sec);
+    });
     // Lön: visas när en lönedag (25:e, lör -> 24:e, sön -> 26:e) infaller sedan förra veckan
     const lonInfo = h('p', { class: 'note' });
     const lonVis = h('button', { type: 'button', class: 'linkbtn', onclick: () => { lonForce = true; preview(); } }, 'Lägg till lön den här veckan ändå');
     let lonForce = !!(editing && typeof editing.lon === 'number');
     const lonSec = h('section', { class: 'card lon' }, h('h3', {}, 'Lön'), field('lon', 'Nettolön', 'opt'), lonInfo);
     form.append(lonSec, lonVis);
-    const adv = h('details', { class: 'card', open: editing && ADV().some(([p]) => getP(editing, p)) ? true : null }, h('summary', {}, 'Avancerat: försäljningar och avgifter'),
+    const adv = h('details', { class: 'card', open: editing && ADV().some(([p]) => getP(editing, p)) ? true : null }, h('summary', {}, 'Avancerat: försäljningar'),
       h('p', { class: 'note' }, 'Sålde du och tog ut pengarna: ange anskaffningsvärdet som negativ insättning ovan och vinsten här (förlust som minus). Säljer du och köper nytt inom kontot behövs inget här.'),
       ADV().map(([p, l]) => field(p, l, 'flow')));
     form.append(adv);
@@ -345,6 +367,116 @@ window.EKONOMI_VERSION = '1.1.0';
     return form;
   }
 
+
+  // ---------------------------------------------------------------- Avanza: innehav, GAV, utdelningar
+  const AV = { data: null, etag: null, loaded: false, loading: false, err: null, an: null, filter: 'alla', open: null, paste: false, msg: null };
+  async function avLoad(force) {
+    if ((AV.loaded && !force) || AV.loading) return;
+    AV.loading = true;
+    try { const r = await Store.loadAvanza(); AV.data = r.data; AV.etag = r.etag; AV.loaded = true; AV.err = null; avAnalyze(); }
+    catch (e) { AV.err = e.message; }
+    AV.loading = false; if (location.hash.startsWith('#innehav')) render();
+  }
+  function avAnalyze() { AV.an = AV.data && (AV.data.tx || []).length ? Avanza.analyze(AV.data.tx, AV.data.holdings) : null; }
+  async function avSave(mut, msg) {
+    const next = AV.data ? JSON.parse(JSON.stringify(AV.data)) : { app: 'ekonomi-avanza', version: 1, tx: [], holdings: null };
+    mut(next); next.updated = new Date().toISOString();
+    try {
+      AV.etag = await Store.saveAvanza(next, AV.etag); AV.data = next; avAnalyze();
+      if (msg) toast(msg, 'ok'); backup(false); return true;
+    } catch (e) { toast(e.message, 'err'); if (e.conflict) await avLoad(true); return false; }
+    finally { render(); }
+  }
+  const slim = r => ({ d: r.d, konto: r.konto, typ: r.typ, namn: r.namn, antal: r.antal, kurs: r.kurs, belopp: r.belopp, courtage: r.courtage, isin: r.isin, resultat: r.resultat, seq: r.seq });
+  async function avImportCSV(f) {
+    if (!f) return;
+    try {
+      const rows = Avanza.parseCSV(await f.text()).map(slim);
+      if (!AV.loaded) await avLoad();
+      const m = Avanza.merge((AV.data && AV.data.tx) || [], rows);
+      await avSave(d => { d.tx = m.rows; }, m.added ? `${m.added} nya transaktioner (${m.skipped} fanns redan)` : 'Inga nya transaktioner – allt fanns redan');
+    } catch (e) { toast(e.message, 'err'); }
+  }
+  async function avSaveHoldings(text) {
+    const h = Avanza.parseHoldings(text);
+    if (!AV.loaded) await avLoad();
+    await avSave(d => { d.holdings = { date: today(), items: h.items, totals: h.totals }; }, `Kurser uppdaterade (${h.items.length} innehav)`);
+    return h;
+  }
+  function pasteBox(onDone, hint) {
+    const ta = h('textarea', { rows: 6, placeholder: 'Markera hela innehavslistan på Avanza (Min ekonomi › Innehav), kopiera och klistra in här.' });
+    return h('div', { class: 'paste' }, hint ? h('p', { class: 'note' }, hint) : null, ta,
+      h('div', { class: 'btns' }, h('button', { type: 'button', class: 'primary', onclick: async () => {
+        try { const res = await avSaveHoldings(ta.value); onDone && onDone(res); } catch (e) { toast(e.message, 'err'); } } }, 'Läs in')));
+  }
+
+  function viewInnehav() {
+    if (!AV.loaded) { avLoad(); return h('div', { class: 'view' }, h('p', { class: 'note pad' }, AV.err ? 'Kunde inte hämta: ' + AV.err : 'Hämtar Avanza-data…')); }
+    const file = h('input', { type: 'file', accept: '.csv,text/csv', style: 'display:none', onchange: ev => avImportCSV(ev.target.files[0]) });
+    const importBtns = h('div', { class: 'btns' }, file,
+      h('button', { class: 'ghost', onclick: () => file.click() }, 'Importera transaktioner (CSV)'),
+      h('button', { class: 'ghost', onclick: () => { AV.paste = !AV.paste; render(); } }, AV.paste ? 'Stäng' : 'Uppdatera kurser'));
+    const an = AV.an, hold = AV.data && AV.data.holdings;
+    if (!an) return h('div', { class: 'view' }, h('section', { class: 'card' }, h('h2', {}, 'Innehav på Avanza'),
+      h('p', {}, 'Läs in transaktionsexporten från Avanza för att se innehav, GAV, utdelningar och avslutade affärer.'),
+      h('ol', { class: 'note' }, h('li', {}, 'Avanza › Min ekonomi › Transaktioner › välj hela perioden › Exportera (CSV).'),
+        h('li', {}, 'Avanza › Min ekonomi › Innehav › kopiera listan och klistra in under "Uppdatera kurser".')),
+      importBtns, AV.paste ? pasteBox(() => { AV.paste = false; }) : null));
+
+    const cur = an.current.filter(c => AV.filter === 'alla' || c.typ === AV.filter);
+    const tot = cur.reduce((s, c) => s + (c.varde || 0), 0), sk = cur.reduce((s, c) => s + (c.sedanKop || 0), 0);
+    const yrs = an.years.filter(y => y.utd || y.realiserat);
+    const row = c => {
+      const isOpen = AV.open === c.name;
+      const g = c.group;
+      return [h('div', { class: 'li h', onclick: () => { AV.open = isOpen ? null : c.name; render(); } },
+        h('span', { class: 'nm' }, c.name, h('small', {}, c.andel ? pct(c.andel, false) + ' av portföljen' : '')),
+        h('span', {}, c.varde === null ? '–' : nf0.format(c.varde), h('small', { class: cls(c.sedanKop) }, c.sedanKopPct === null || c.sedanKopPct === undefined ? '' : pct(c.sedanKopPct))),
+        h('span', { class: cls(c.total) }, c.total === null || c.total === undefined ? '–' : pct(c.total), h('small', {}, c.utd ? 'utd ' + nf0.format(c.utd) : ''))),
+        isOpen ? h('div', { class: 'det' },
+          h('table', { class: 'kv' }, h('tbody', {},
+            [['Antal', c.qty === null ? '–' : nf2.format(c.qty)], ['GAV', c.gav ? nf2.format(c.gav) + ' kr' : '–'], ['Senaste kurs', c.senast ? nf2.format(c.senast) : '–'],
+             ['Anskaffningsvärde', kr(c.ansk)], ['Sedan köp', krS(c.sedanKop)], ['Utdelningar totalt', kr(c.utd)], ['Köpt totalt', kr(c.kopt)], ['Sålt totalt', kr(c.salt)]]
+              .map(([k, v]) => h('tr', {}, h('td', {}, k), h('td', {}, v))))),
+          g ? txList(g.tx) : null) : null];
+    };
+    return h('div', { class: 'view' },
+      h('section', { class: 'hero' }, h('div', { class: 'lbl' }, 'Innehav Avanza' + (hold ? ' · kurser ' + dstr(hold.date) : '')),
+        h('div', { class: 'huge' }, hold ? kr(tot) : '–'), hold ? h('div', { class: 'sub' }, h('span', { class: cls(sk) }, krS(sk)), ' sedan köp') : h('div', { class: 'sub' }, 'Klistra in innehavslistan för att se värden.')),
+      h('section', { class: 'card' }, importBtns, AV.paste ? pasteBox(() => { AV.paste = false; }) : null,
+        h('p', { class: 'note' }, `${an.count} transaktioner ${an.first ? dstr(an.first) : ''} – ${an.lastDate ? dstr(an.lastDate) : ''}.`)),
+      h('section', { class: 'card list' }, h('div', { class: 'row pad2' }, h('h2', {}, 'Innehav'),
+        h('div', { class: 'seg' }, [['alla', 'Alla'], ['aktie', 'Aktier'], ['fond', 'Fonder'], ['etf', 'ETF']].map(([k, l]) => h('button', { class: AV.filter === k ? 'on' : '', onclick: () => { AV.filter = k; render(); } }, l)))),
+        h('div', { class: 'li head h' }, h('span', {}, 'Namn'), h('span', {}, 'Värde kr'), h('span', {}, 'Total avk.')),
+        cur.map(row).flat(),
+        h('p', { class: 'note pad2' }, 'Värde och "sedan köp" kommer från Avanzas lista. Total avk. = (värde + sålt + utdelningar − köpt) / köpt, för hela tiden du ägt aktien.')),
+      h('section', { class: 'card' }, h('h2', {}, 'Utdelningar och resultat per år'),
+        yrs.length ? barChartKr(yrs.map(y => String(y.year)), yrs.map(y => y.utdNetto)) : null,
+        h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['År', 'Utdelning', 'Källskatt', 'Realiserat', 'Skatt/avg.'].map(x => h('th', {}, x)))),
+          h('tbody', {}, an.years.slice().reverse().map(y => h('tr', {}, h('td', {}, y.year), h('td', {}, nf0.format(y.utd)), h('td', {}, nf0.format(y.kallskatt)),
+            h('td', { class: cls(y.realiserat) }, nf0.format(y.realiserat)), h('td', {}, nf0.format(y.skatt)))))),
+        h('p', { class: 'note' }, 'Realiserat = försäljningspris − anskaffningsvärde (genomsnittsmetoden per konto). Skatt/avg. = avkastningsskatt (ISK/KF), riskkostnad, räntor och avgifter.')),
+      h('section', { class: 'card list' }, h('h2', { class: 'pad2' }, `Avslutade innehav (${an.closed.length})`),
+        h('div', { class: 'li head h' }, h('span', {}, 'Namn'), h('span', {}, 'Resultat kr'), h('span', {}, 'Total avk.')),
+        an.closed.map(c => { const isOpen = AV.open === 'x:' + c.name + c.last; return [h('div', { class: 'li h', onclick: () => { AV.open = isOpen ? null : 'x:' + c.name + c.last; render(); } },
+          h('span', { class: 'nm' }, c.name, h('small', {}, 'sålt ' + dstr(c.last))), h('span', { class: cls(c.resultat) }, nf0.format(c.resultat), h('small', {}, c.utd ? '+ utd ' + nf0.format(c.utd) : '')),
+          h('span', { class: cls(c.total) }, c.total === null ? '–' : pct(c.total))),
+          isOpen ? h('div', { class: 'det' }, h('table', { class: 'kv' }, h('tbody', {}, [['Köpt för', kr(c.kopt)], ['Sålt för', kr(c.salt)], ['Utdelningar', kr(c.utd)]].map(([k, v]) => h('tr', {}, h('td', {}, k), h('td', {}, v))))), txList(c.group.tx)) : null]; }).flat()));
+  }
+  function txList(tx) {
+    const list = tx.slice().reverse();
+    return h('details', { class: 'txl' }, h('summary', {}, `Transaktioner (${list.length})`),
+      h('table', { class: 'tbl small' }, h('tbody', {}, list.slice(0, 150).map(t => h('tr', {}, h('td', {}, t.d), h('td', {}, t.typ), h('td', {}, t.antal === null ? '' : nf2.format(t.antal)), h('td', {}, t.belopp === null ? '' : nf0.format(t.belopp)))))));
+  }
+  function barChartKr(labels, values) {
+    const W = chartW(), H = 170, L = 50, R = 8, T = 16, B = 22, hi = Math.max(1, ...values), step = niceStep(hi / 4), top = Math.ceil(hi / step) * step;
+    const y = v => T + (H - T - B) * (1 - v / top), bw = (W - L - R) / labels.length; let g = '';
+    for (let v = 0; v <= top + step / 2; v += step) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${L - 6}" y="${y(v) + 4}" class="ax" text-anchor="end">${mkr(v)}</text>`;
+    labels.forEach((l, i) => { const x0 = L + i * bw + bw * .18, w = bw * .64, v = Math.max(0, values[i]);
+      g += `<rect x="${x0}" y="${y(v)}" width="${w}" height="${y(0) - y(v)}" class="bar pos" rx="3"/><text x="${x0 + w / 2}" y="${y(v) - 4}" class="ax val" text-anchor="middle">${mkr(values[i])}</text><text x="${x0 + w / 2}" y="${H - 6}" class="ax" text-anchor="middle">${l}</text>`; });
+    return h('div', { class: 'chart', html: `<svg viewBox="0 0 ${W} ${H}">${g}</svg>` });
+  }
+
   function viewHistory() {
     const out = S.out.slice().reverse();
     let shown = 60;
@@ -400,7 +532,8 @@ window.EKONOMI_VERSION = '1.1.0';
           h('li', {}, 'I år (tidsviktad) = veckornas utveckling kedjade sedan årsskiftet. Påverkas inte av när du sätter in pengar.'),
           h('li', {}, 'I år (pengaviktad) = årets avkastning / genomsnittligt insatt kapital under året.'),
           h('li', {}, 'Insatt på Avanza ska som tidigare inkludera utdelningar du köper för.'),
-          h('li', {}, 'Lönedag: den 25:e, lördag → 24:e, söndag → 26:e. Lönefältet visas i den vecka lönen kommer.'),
+          h('li', {}, 'Lönedag: den 25:e, lördag → 24:e, söndag → 26:e. December: den 23:e (helg → fredagen före). Lönefältet visas i den vecka lönen kommer.'),
+          h('li', {}, 'SAVR: "Insatt" är bara dina egna pengar. Återbäring räknas som avkastning, precis som utdelningar.'),
           h('li', {}, 'Sparkvot per lön = ökningen av egna insatta pengar + kassa sedan förra lönen / nettolönen.'))),
       h('p', { class: 'note pad' }, 'Version ' + (window.EKONOMI_VERSION || '')));
   }
@@ -413,9 +546,10 @@ window.EKONOMI_VERSION = '1.1.0';
       const n = S.data && S.data.rows.length;
       if (n && !confirm(`Ersätt nuvarande ${n} veckor med ${d.rows.length} veckor från filen?`)) return;
       const keepEtag = S.etag;
-      if (!S.data) S.data = { app: 'ekonomi', version: 1, settings: {}, rows: [] };
+      if (!S.data) S.data = { app: 'ekonomi', version: 2, settings: {}, rows: [] };
       S.etag = keepEtag;
-      await commit(x => { x.rows = d.rows; x.settings = Object.assign({}, x.settings, d.settings || {}); }, `Importerade ${d.rows.length} veckor`);
+      Calc.migrate(d);
+      await commit(x => { x.rows = d.rows; x.version = d.version; x.settings = Object.assign({}, x.settings, d.settings || {}); }, `Importerade ${d.rows.length} veckor`);
       location.hash = '#oversikt';
     } catch (e) { toast(e.message, 'err'); }
   }
@@ -449,6 +583,7 @@ window.EKONOMI_VERSION = '1.1.0';
     else if (route === 'ny') v = viewForm(new URLSearchParams(qs || '').get('d'));
     else if (!S.data.rows.length) v = viewEmpty();
     else if (route === 'historik') v = viewHistory();
+    else if (route === 'innehav') v = viewInnehav();
     else if (route === 'mer') v = viewMore();
     else v = viewOverview();
     // behåll formulär vid omritning medan man skriver
@@ -467,7 +602,7 @@ window.EKONOMI_VERSION = '1.1.0';
     } catch (e) { S.needLogin = true; S.loginMsg = 'Inloggningen misslyckades: ' + e.message; return render(); }
     if (!Store.isDemo() && !Store.signedIn()) { S.needLogin = true; return render(); }
     const c = Store.cached();
-    if (c) { S.data = c.data; S.etag = c.etag; recompute(); }
+    if (c) { S.data = c.data; S.etag = c.etag; Calc.migrate(S.data); recompute(); }
     S.loading = true; render();
     try { await reload(); S.offline = false; }
     catch (e) {

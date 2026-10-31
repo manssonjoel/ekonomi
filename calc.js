@@ -8,11 +8,23 @@
   const t = d => Date.parse(d + 'T00:00:00Z') / DAY;
   const yr = d => +d.slice(0, 4);
 
-  // Lönedag: den 25:e; lördag -> 24:e, söndag -> 26:e
+  // Lönedag: den 25:e; lördag -> 24:e, söndag -> 26:e.
+  // December: den 23:e; lördag -> 22:e, söndag -> 21:e.
   function lonedag(y, m) {
-    const d = new Date(Date.UTC(y, m - 1, 25)), w = d.getUTCDay();
-    if (w === 6) d.setUTCDate(24); else if (w === 0) d.setUTCDate(26);
+    const d = new Date(Date.UTC(y, m - 1, m === 12 ? 23 : 25)), w = d.getUTCDay();
+    if (m === 12) { if (w === 6) d.setUTCDate(22); else if (w === 0) d.setUTCDate(21); }
+    else if (w === 6) d.setUTCDate(24); else if (w === 0) d.setUTCDate(26);
     return d.toISOString().slice(0, 10);
+  }
+
+  // Dataformat v2: SAVR "inv" = bara egna pengar, återbäringen ("ater") läggs till av appen.
+  // (v1/Excel: "inv" innehöll även återbäringen.)
+  function migrate(data) {
+    if (!data || !Array.isArray(data.rows)) return false;
+    if ((data.version || 1) >= 2) return false;
+    data.rows.forEach(r => { if (r.sv && r.sv.ater) r.sv.inv = Math.round(((r.sv.inv || 0) - r.sv.ater) * 100) / 100; });
+    data.version = 2;
+    return true;
   }
   // Lönedagar i intervallet (from, to] (datumsträngar ÅÅÅÅ-MM-DD)
   function lonedagarMellan(from, to) {
@@ -59,7 +71,7 @@
     let s = { Ainv: 0, Aai: 0, Afi: 0, Aei: 0, Autd: 0, Dinv: 0, Sinv: 0, SinvG: 0, L: 0, M: 0 };
     R.forEach((r, i) => {
       s.Aai += r.ai; s.Afi += r.fi; s.Aei += r.ei; s.Ainv += r.ai + r.fi + r.ei; s.Autd += r.utd;
-      s.Dinv += r.dinv; s.Sinv += r.sinv; s.SinvG += r.sinv - r.sater;
+      s.Dinv += r.dinv; s.Sinv += r.sinv + r.sater; s.SinvG += r.sinv;
       s.L += r.avinst + r.dvinst;           // realiserad vinst (återinvesterad vinst)
       s.M += r.utd + r.sater;               // utdelningar + återbetald avgift
       for (const k in s) c[k][i] = s[k];
@@ -95,10 +107,10 @@
       o.avTot = Aval[i] / (c.Ainv[i] - c.Autd[i]) - 1;
       o.dbTot = c.Dinv[i] ? Dval[i] / c.Dinv[i] - 1 : null;
       o.svTot = c.SinvG[i] ? Sval[i] / c.SinvG[i] - 1 : null;
-      let utd = 0, lon = 0, lonN = 0;
-      for (let j = (st === i ? i : st + 1); j <= i; j++) { utd += R[j].utd; if (R[j].lon !== null) { lon += R[j].lon; lonN++; } }
-      if (st === 0 && yr(R[0].d) === o.year) utd += R[0].utd;
-      o.utdAr = utd; o.lonAr = lon; o.lonAntal = lonN;
+      let utd = 0, ater = 0, lon = 0, lonN = 0;
+      for (let j = (st === i ? i : st + 1); j <= i; j++) { utd += R[j].utd; ater += R[j].sater; if (R[j].lon !== null) { lon += R[j].lon; lonN++; } }
+      if (st === 0 && yr(R[0].d) === o.year) { utd += R[0].utd; ater += R[0].sater; }
+      o.utdAr = utd; o.aterAr = ater; o.lonAr = lon; o.lonAntal = lonN;
       o.sparkvotAr = lon ? o.sparatAr / lon : null;
     }
     // Per lön: sparat sedan förra lönen (egna insatta pengar + kassa) / nettolön
@@ -130,6 +142,6 @@
     return [...m.values()];
   }
 
-  const api = { compute, years, sortRows, lonedag, lonedagarMellan };
+  const api = { compute, years, sortRows, lonedag, lonedagarMellan, migrate };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Calc = api;
 })(this);

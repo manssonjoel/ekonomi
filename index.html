@@ -18,7 +18,7 @@ header{position:sticky;top:0;z-index:5;background:var(--acc);color:#fff;padding:
 header b{font-size:17px;letter-spacing:.2px}header #status{margin-left:auto;font-size:12px;opacity:.85}
 main{max-width:760px;margin:0 auto;padding:12px 12px calc(90px + env(safe-area-inset-bottom))}
 nav{position:fixed;bottom:0;left:0;right:0;z-index:5;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom)}
-nav a{flex:1;max-width:190px;text-align:center;padding:9px 4px 8px;color:var(--mut);text-decoration:none;font-size:12px}
+nav a{flex:1;max-width:160px;text-align:center;padding:9px 4px 8px;color:var(--mut);text-decoration:none;font-size:12px}
 nav a svg{display:block;margin:0 auto 2px;width:22px;height:22px}nav a.on{color:var(--acc);font-weight:600}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 14px;margin:0 0 12px}
 h2{font-size:15px;margin:0 0 10px}h3{font-size:13px;margin:0 0 8px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
@@ -53,7 +53,7 @@ button.primary,button.ghost,button.danger,a.btn{font:inherit;font-weight:600;bor
 .primary:disabled{opacity:.6}.ghost{background:var(--bg);border-color:var(--line)!important;color:var(--ink)}.danger{background:none;color:var(--neg);border-color:var(--line)!important}
 .wide{width:100%}.center{text-align:center}.logo img{width:72px;height:72px;margin:6px auto}
 .list{padding:4px 0}.li{display:grid;grid-template-columns:1.1fr 1.2fr 1.5fr;gap:6px;padding:9px 14px;border-bottom:1px solid var(--line);color:var(--ink);text-decoration:none;font-variant-numeric:tabular-nums;font-size:13.5px}
-.li span:not(:first-child){text-align:right}.li.head{font-size:12px;color:var(--mut)}.yr{padding:10px 14px 4px;font-weight:700;color:var(--acc)}
+.li span:not(:first-child){text-align:right}.li.head{font-size:12px;color:var(--mut)}.li.h{grid-template-columns:1.6fr 1fr 1fr;cursor:pointer}.li .nm{font-weight:500;overflow:hidden;text-overflow:ellipsis}.li small{display:block;font-size:11px;color:var(--mut);font-weight:400}.li small.pos{color:var(--pos)}.li small.neg{color:var(--neg)}.det{padding:6px 14px 12px;border-bottom:1px solid var(--line);background:var(--bg)}.kv{width:100%;font-size:13px;font-variant-numeric:tabular-nums}.kv td{padding:3px 0}.kv td:last-child{text-align:right}.txl summary{font-size:13px;color:var(--acc);margin-top:6px;font-weight:500}.tbl.small{font-size:12px}.pad2{padding:8px 14px 6px}.paste textarea{width:100%;font:inherit;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);margin-top:8px}.yr{padding:10px 14px 4px;font-weight:700;color:var(--acc)}
 #toasts{position:fixed;left:0;right:0;bottom:calc(80px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:6px;z-index:9;pointer-events:none}
 .toast{background:#222;color:#fff;padding:10px 14px;border-radius:10px;font-size:14px;max-width:92%;opacity:0;transform:translateY(8px);transition:.3s}.toast.show{opacity:1;transform:none}.toast.err{background:#8a2a20}.toast.ok{background:#1f4d3a}
 </style>
@@ -64,6 +64,7 @@ button.primary,button.ghost,button.danger,a.btn{font:inherit;font-weight:600;bor
 <nav id="nav">
   <a href="#oversikt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 20h18M6 16v-5M11 16V7M16 16v-8M21 16V4"/></svg>Översikt</a>
   <a href="#ny"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Ny vecka</a>
+  <a href="#innehav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v9l7 4"/><circle cx="12" cy="12" r="9"/></svg>Innehav</a>
   <a href="#historik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Historik</a>
   <a href="#mer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>Mer</a>
 </nav>
@@ -71,6 +72,7 @@ button.primary,button.ghost,button.danger,a.btn{font:inherit;font-weight:600;bor
 <script src="config.js"></script>
 <script src="calc.js"></script>
 <script src="xlsx.js"></script>
+<script src="avanza.js"></script>
 <script src="store.js"></script>
 <script src="app.js"></script>
 </body>
