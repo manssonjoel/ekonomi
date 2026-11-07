@@ -1,5 +1,5 @@
 /* Ekonomi – appens gränssnitt */
-window.EKONOMI_VERSION = '1.5.0';
+window.EKONOMI_VERSION = '1.6.0';
 (function () {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
@@ -216,9 +216,9 @@ window.EKONOMI_VERSION = '1.5.0';
 
   // ---------------------------------------------------------------- detaljsida: konto
   const KONTO = {
-    avanza: { name: () => 'Avanza', val: o => o.Aval, own: o => o.Aown, y: o => o.avY, tot: o => o.avTot },
-    savr: { name: () => 'SAVR', val: o => o.Sval, own: o => o.SinvG, y: o => o.svY, tot: o => o.svTot },
-    bank: { name: () => bankNamn(), val: o => o.Dval, own: o => o.Dinv, y: o => o.dbY, tot: o => o.dbTot },
+    avanza: { name: () => 'Avanza', val: o => o.Aval, own: o => o.Aown, y: o => o.avY, tot: o => o.avTot, w: o => o.avW, x: o => o.avX },
+    savr: { name: () => 'SAVR', val: o => o.Sval, own: o => o.SinvG, y: o => o.svY, tot: o => o.svTot, w: o => o.svW, x: o => o.svX },
+    bank: { name: () => bankNamn(), val: o => o.Dval, own: o => o.Dinv, y: o => o.dbY, tot: o => o.dbTot, w: o => o.dbW, x: o => o.dbX },
     kassa: { name: () => 'Kassa', val: o => o.kassa },
   };
   function viewKonto(k) {
@@ -231,8 +231,11 @@ window.EKONOMI_VERSION = '1.5.0';
     const avk = K.val(o) - K.own(o);
     return h('div', { class: 'view' }, back(),
       h('section', { class: 'hero' }, h('div', { class: 'lbl' }, nm), h('div', { class: 'huge' }, kr(K.val(o))), h('div', { class: 'sub' }, h('span', { class: cls(K.y(o)) }, pct(K.y(o))), ' i år')),
-      card(null, null, h('div', { class: 'grid2' }, stat('I år', pct(K.y(o)), null, cls(K.y(o))), stat('Totalt', pct(K.tot(o)), null, cls(K.tot(o))),
-        stat('Egna insatta pengar', kr(K.own(o))), stat('Avkastat totalt', krS(avk), null, cls(avk)))),
+      card(null, null, h('div', { class: 'grid2' },
+        stat(periodLabel(out.length - 1), pct(K.x(o)), krS(K.w(o)), cls(K.x(o))), stat('I år', pct(K.y(o)), null, cls(K.y(o))),
+        stat('Totalt', pct(K.tot(o)), null, cls(K.tot(o))), stat('Avkastat totalt', krS(avk), null, cls(avk)),
+        stat('Egna insatta pengar', kr(K.own(o))),
+        k === 'avanza' ? stat('Veckan exkl. utdelningar', krS(o.avW - o.utd - o.avg), 'jämförbar med Avanzas "Utveckling 1 vecka"', cls(o.avW - o.utd - o.avg)) : null)),
       k === 'avanza' ? card('Fördelning', null, C.donut([{ name: 'Aktier', value: o.aav, cls: 'c1' }, { name: 'Fonder', value: o.afv, cls: 'c3' }, { name: 'ETF', value: o.aev, cls: 'c2' }], { center: [C.mkr(o.Aval), 'Avanza'] }),
         h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['', 'Värde', 'I år'].map(x => h('th', {}, x)))), h('tbody', {},
           [['Aktier', o.aav, o.aktY], ['Fonder', o.afv, o.fondY], ['ETF', o.aev, o.etfY]].map(([a, v, y]) => h('tr', {}, h('td', {}, a), h('td', {}, kr(v)), h('td', { class: cls(y) }, pct(y)))))),
@@ -292,6 +295,12 @@ window.EKONOMI_VERSION = '1.5.0';
   }
   const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
   const shiftDays = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
+  function senastInlagd(rows) {
+    const last = rows.length ? rows[rows.length - 1].d : null; if (!last) return null;
+    const dd = daysBetween(last, today()), WD = ['sön', 'mån', 'tis', 'ons', 'tors', 'fre', 'lör'];
+    return h('div', { class: 'lastin' + (dd >= 8 ? ' late' : '') }, h('span', {}, 'Senast inlagd'),
+      h('b', {}, `${WD[new Date(last + 'T12:00:00').getDay()]} ${dstr(last)}`), h('small', {}, dd === 0 ? 'idag' : dd === 1 ? 'igår' : `${dd} dagar sedan`));
+  }
   const shiftYears = (d, y) => (+d.slice(0, 4) + y) + d.slice(4);
 
   const FIELDS = () => [
@@ -362,6 +371,7 @@ window.EKONOMI_VERSION = '1.5.0';
     const yearEnd = h('input', { type: 'checkbox', onchange: () => preview() });
     const yearEndBox = h('label', { class: 'chk', style: 'display:none' }, yearEnd, h('span', {}, ''));
     form.append(h('section', { class: 'card' }, h('h2', {}, editing ? 'Ändra vecka' : 'Ny vecka'),
+      editing ? null : senastInlagd(rows),
       editing ? null : h('button', { type: 'button', class: 'primary wide wizbtn', onclick: () => wizard() }, 'Lägg in veckan steg för steg'),
       h('label', { class: 'fld' }, h('span', {}, 'Datum för avläsningen'), date),
       h('p', { class: 'note' }, 'Använd dagens datum, även om du är sen – värdena gäller den dag du läser av dem.'), yearEndBox));
@@ -463,6 +473,7 @@ window.EKONOMI_VERSION = '1.5.0';
 
     // ------------------------------------------------ steg för steg (som makrot): en fråga i taget, hoppar över det som redan är ifyllt
     function wizard() {
+      if (document.querySelector('.wiz')) return;            // bara en ruta åt gången
       const lonVisas = lonSec.style.display !== 'none';
       const plan = [
         ['kassa', 'Kassa', 'Hur mycket har du på lönekonto + buffert?'],
@@ -474,44 +485,65 @@ window.EKONOMI_VERSION = '1.5.0';
       ].concat(lonVisas ? [['lon', 'Lön', 'Lönen har kommit – vad blev nettolönen?']] : []);
       // hoppa över fält som redan har ett värde (inklistrat, importerat eller skrivet)
       const steps = plan.filter(([p]) => inputs[p] && inputs[p].value.trim() === '' && inputs[p].dataset.auto !== '1');
-      let i = 0;
-      const ov = h('div', { class: 'wiz' }), boxEl = h('div', { class: 'wizbox' }); ov.append(boxEl);
-      const close = () => { ov.remove(); document.removeEventListener('keydown', esc); preview(); };
+      let i = 0, pasteMode = false;
+      const boxEl = h('div', { class: 'wizbox', role: 'dialog', 'aria-modal': 'true' }), ov = h('div', { class: 'wiz' }, boxEl);
+      const close = () => { ov.remove(); document.body.classList.remove('noscroll'); document.removeEventListener('keydown', esc); preview(); };
       const esc = ev => { if (ev.key === 'Escape') close(); };
       document.addEventListener('keydown', esc);
+      ov.addEventListener('click', ev => { if (ev.target === ov) close(); });
+      const go = d => { i = Math.max(0, Math.min(steps.length, i + d)); pasteMode = false; show(); };
+      function frame(title, body, foot) {
+        boxEl.replaceChildren(
+          h('div', { class: 'wizhead' },
+            h('div', {}, h('div', { class: 'wizstep' }, i < steps.length ? `Steg ${i + 1} av ${steps.length}` : 'Klart'), h('div', { class: 'wiztitle' }, title)),
+            h('button', { type: 'button', class: 'wizx', onclick: close, 'aria-label': 'Stäng' }, '✕')),
+          h('div', { class: 'wizbar' }, h('i', { style: `width:${(steps.length ? Math.min(i, steps.length) / steps.length : 1) * 100}%` })),
+          h('div', { class: 'wizbody' }, ...body.filter(Boolean)),
+          h('div', { class: 'wizfoot' }, ...foot.filter(Boolean)));
+      }
       function show() {
-        boxEl.innerHTML = '';
-        const head = h('div', { class: 'wizhead' }, h('span', {}, i < steps.length ? `${i + 1} av ${steps.length}` : 'Klart'), h('button', { type: 'button', class: 'mini x', onclick: close, title: 'Stäng' }, '✕'));
-        const bar = h('div', { class: 'goal' }, h('div', { class: 'bar' }, h('i', { style: `width:${(steps.length ? i / steps.length : 1) * 100}%` })));
-        boxEl.append(head, bar);
         if (i >= steps.length) {
           preview();
-          boxEl.append(h('h3', {}, 'Sammanfattning'), h('div', { class: 'preview' }, ...[...pv.childNodes].map(n => n.cloneNode(true))),
-            h('p', { class: 'note' }, steps.length ? '' : 'Allt var redan ifyllt.'),
-            h('div', { class: 'btns' }, steps.length ? h('button', { type: 'button', class: 'ghost', onclick: () => { i--; show(); } }, 'Tillbaka') : null,
-              h('button', { type: 'button', class: 'ghost', onclick: close }, 'Granska formuläret'),
-              h('button', { type: 'button', class: 'primary', onclick: () => { close(); form.requestSubmit(); } }, 'Spara')));
+          const filled = plan.filter(([p]) => inputs[p] && inputs[p].value.trim() !== '');
+          frame('Sammanfattning', [
+            h('div', { class: 'preview big' }, ...[...pv.childNodes].map(n => n.cloneNode(true))),
+            filled.length ? h('table', { class: 'kv wizsum' }, h('tbody', {}, filled.map(([p, sec, q]) => h('tr', {}, h('td', {}, `${sec}: ${labels[p] || q}`), h('td', {}, inputs[p].value))))) : null,
+            steps.length ? null : h('p', { class: 'note' }, 'Allt var redan ifyllt.')],
+            [steps.length ? h('button', { type: 'button', class: 'ghost', onclick: () => go(-1) }, '‹ Tillbaka') : null,
+             h('button', { type: 'button', class: 'ghost', onclick: close }, 'Granska'),
+             h('button', { type: 'button', class: 'primary', onclick: () => { close(); form.requestSubmit(); } }, 'Spara veckan')]);
           return;
         }
         const [p, sec, q, extra] = steps[i], src = inputs[p], kind = src.dataset.kind;
+        if (pasteMode) {
+          const ta = h('textarea', { rows: 7, placeholder: 'Markera hela innehavslistan på Avanza (Min ekonomi › Innehav), kopiera och klistra in här.' });
+          const read = async () => {
+            try { const res = await avSaveHoldings(ta.value); applyHoldings(res); pasteMode = false;
+              const left = steps.slice(i).filter(([pp]) => inputs[pp].value.trim() === ''); steps.splice(i, steps.length - i, ...left); show(); }
+            catch (e) { toast(e.message, 'err'); }
+          };
+          frame('Avanza', [h('div', { class: 'wizq' }, 'Klistra in innehavslistan'), h('p', { class: 'note' }, 'Aktier, fonder och ETF fylls i på en gång. Konton du stängt av räknas bort.'), ta],
+            [h('button', { type: 'button', class: 'ghost', onclick: () => { pasteMode = false; show(); } }, '‹ Avbryt'), h('button', { type: 'button', class: 'primary', onclick: read }, 'Läs in')]);
+          setTimeout(() => ta.focus(), 30);
+          return;
+        }
         const inp = h('input', { inputmode: 'decimal', enterkeyhint: 'next', autocomplete: 'off', value: src.value, placeholder: kind === 'value' ? '' : '0' });
         const err = h('p', { class: 'warn' });
         const next = () => {
           const v = inp.value.trim();
           if (kind === 'value' && v === '') { err.textContent = 'Fyll i ett värde.'; inp.focus(); return; }
           if (v !== '' && !isFinite(parseNum(v))) { err.textContent = 'Skriv ett belopp, t.ex. 1 234,50 eller 1000+250.'; inp.focus(); return; }
-          src.value = v === '' ? '' : fmtIn(parseNum(v)); delete src.dataset.auto; i++; show();
+          src.value = v === '' ? '' : fmtIn(parseNum(v)); delete src.dataset.auto; go(1);
         };
         inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); next(); } });
-        boxEl.append(h('div', { class: 'wizsec' }, sec), h('div', { class: 'wizq' }, q), inp, err,
-          extra === 'paste' ? h('button', { type: 'button', class: 'linkbtn', onclick: () => {
-            const pb = pasteBox(res => { applyHoldings(res); const left = steps.slice(i).filter(([pp]) => inputs[pp].value.trim() === ''); steps.splice(i, steps.length - i, ...left); show(); },
-              'Fyller i aktier, fonder och ETF på en gång.'); boxEl.append(pb); pb.querySelector('textarea').focus(); } }, 'Klistra in innehavslistan från Avanza i stället') : null,
-          h('div', { class: 'btns' }, h('button', { type: 'button', class: 'ghost', disabled: i === 0 ? true : null, onclick: () => { i--; show(); } }, 'Tillbaka'),
-            h('button', { type: 'button', class: 'primary', onclick: next }, 'Nästa')));
+        frame(sec, [h('div', { class: 'wizq' }, q), inp, err,
+          kind !== 'value' ? h('p', { class: 'note' }, 'Lämna tomt om det är 0.') : null,
+          extra === 'paste' ? h('button', { type: 'button', class: 'ghost wide', onclick: () => { pasteMode = true; show(); } }, 'Klistra in innehavslistan från Avanza i stället') : null],
+          [h('button', { type: 'button', class: 'ghost', disabled: i === 0 ? true : null, onclick: () => go(-1) }, '‹ Tillbaka'),
+           h('button', { type: 'button', class: 'primary', onclick: next }, i === steps.length - 1 ? 'Klar ›' : 'Nästa ›')]);
         setTimeout(() => inp.focus(), 30);
       }
-      document.body.append(ov); show();
+      document.body.append(ov); document.body.classList.add('noscroll'); show();
     }
     setTimeout(() => { if (AV.loaded) autoFill(false); else avLoad().then(() => { autoFill(false); preview(); }); preview(); }, 0);
     return form;
@@ -775,6 +807,10 @@ window.EKONOMI_VERSION = '1.5.0';
     S.loading = false; render();
   }
   window.addEventListener('online', () => { if (S.offline) boot(); });
+  // Om webbläsaren har en äldre index.html än app.js: ladda om en gång så att allt kommer från samma version
+  const mv = document.querySelector('meta[name=app-version]');
+  if ((!mv || mv.content !== window.EKONOMI_VERSION) && !sessionStorage.getItem('ek.reloaded')) { sessionStorage.setItem('ek.reloaded', '1'); location.reload(); return; }
+  sessionStorage.removeItem('ek.reloaded');
   boot();
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js');
 })();

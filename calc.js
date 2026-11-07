@@ -92,6 +92,11 @@
     for (let i = 0; i < n; i++) {
       const o = out[i], st = start[i];
       o.W = i ? V[i] - V[i - 1] : 0;                                    // avkastning denna vecka (kr)
+      // per konto denna vecka
+      const wk = (val, inv, inc) => { if (!i) return [0, null]; const dI = inv[i] - inv[i - 1], w = val[i] - val[i - 1] - dI + inc, d = val[i - 1] + Math.max(dI, 0); return [w, d ? w / d : null]; };
+      [o.avW, o.avX] = wk(Aval, c.Ainv, R[i].utd + R[i].avg);
+      [o.svW, o.svX] = wk(Sval, c.SinvG, 0);
+      [o.dbW, o.dbX] = wk(Dval, c.Dinv, R[i].dvinst);
       const den = i ? N[i - 1] + Math.max(K[i] - K[i - 1], 0) : 0;
       o.X = i && den ? o.W / den : null;                                // veckans utveckling
       o.Y = !i ? null : (st === i - 1 || out[i - 1].Y === null) ? o.X : (1 + out[i - 1].Y) * (1 + o.X) - 1; // året, tidsviktat

@@ -5,13 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f4d3a">
 <meta name="referrer" content="no-referrer">
+<meta name="app-version" content="1.6.0">
 <title>Ekonomi</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <style>
-:root{--c3:#3a6ea5;--c4:#8a4fbf;--c6:#a7aca8;--bg:#f4f2ee;--card:#fff;--ink:#1d211f;--mut:#6b716d;--line:#e6e2da;--acc:#1f4d3a;--acc2:#c98a1b;--pos:#1d7a4a;--neg:#b23a2e;--r:14px}
-@media (prefers-color-scheme:dark){:root{--c3:#7fb0e6;--c4:#c39af0;--c6:#5d635f;--bg:#121513;--card:#1b1f1d;--ink:#eceeea;--mut:#9aa19c;--line:#2b302d;--acc:#7fc4a2;--acc2:#f0b54a;--pos:#5fcf8f;--neg:#f07a6c}}
+:root{--c3:#3a6ea5;--c4:#8a4fbf;--c5:#2a9d8f;--c6:#a7aca8;--c7:#c0504d;--c8:#7a6a53;--bg:#f4f2ee;--card:#fff;--ink:#1d211f;--mut:#6b716d;--line:#e6e2da;--acc:#1f4d3a;--acc2:#c98a1b;--pos:#1d7a4a;--neg:#b23a2e;--r:14px}
+@media (prefers-color-scheme:dark){:root{--c3:#7fb0e6;--c4:#c39af0;--c5:#5fd1c2;--c6:#5d635f;--c7:#f08a87;--c8:#c8b28f;--bg:#121513;--card:#1b1f1d;--ink:#eceeea;--mut:#9aa19c;--line:#2b302d;--acc:#7fc4a2;--acc2:#f0b54a;--pos:#5fcf8f;--neg:#f07a6c}}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
 header{position:sticky;top:0;z-index:5;background:var(--acc);color:#fff;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;gap:10px}
 @media (prefers-color-scheme:dark){header{background:#173a2c}}
@@ -74,6 +75,25 @@ a.card.link{display:block;color:inherit;text-decoration:none}a.card.link:active{
 .donut{display:flex;align-items:center;gap:14px}.donut svg{width:150px;height:150px;flex:none}.slice.c1{fill:var(--acc)}.slice.c2{fill:var(--acc2)}.slice.c3{fill:var(--c3)}.slice.c4{fill:var(--c4)}
 .dc1{font-size:15px;font-weight:700;fill:var(--ink)}.dc2{font-size:10px;fill:var(--mut)}
 .dlegend{flex:1;display:grid;gap:8px;font-size:13.5px}.dlegend div{display:grid;grid-template-columns:14px 1fr auto;column-gap:4px;align-items:center}.dlegend b{text-align:right;font-variant-numeric:tabular-nums}.dlegend small{grid-column:2/4;color:var(--mut);font-size:11.5px;margin-top:-2px}
+
+.line.c5{stroke:var(--c5)}.line.c7{stroke:var(--c7)}.line.c8{stroke:var(--c8)}.dot.c5{background:var(--c5)}.dot.c7{background:var(--c7)}.dot.c8{background:var(--c8)}.dot.c1{background:var(--acc)}.dot.c2{background:var(--acc2)}
+.chips.small button{padding:4px 10px;font-size:12.5px}.chips button.on.c2{background:var(--acc2);border-color:var(--acc2)}.chips button.on.c3{background:var(--c3);border-color:var(--c3)}.chips button.on.c4{background:var(--c4);border-color:var(--c4)}.chips button.on.c5{background:var(--c5);border-color:var(--c5)}.chips button.on.c7{background:var(--c7);border-color:var(--c7)}.chips button.on.c8{background:var(--c8);border-color:var(--c8)}
+.ytable{display:grid;gap:4px;margin-top:8px;font-size:13.5px}.ytable div{display:grid;grid-template-columns:14px 50px 1fr auto;gap:6px;align-items:center;font-variant-numeric:tabular-nums}.ytable b{text-align:right}.ytable small{color:var(--mut);font-size:11.5px;width:78px;text-align:right}
+.wizbtn{margin:0 0 6px}body.noscroll{overflow:hidden}
+.lastin{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;background:var(--bg);border-radius:10px;padding:9px 12px;margin:0 0 10px;font-size:14px}.lastin span{color:var(--mut)}.lastin small{color:var(--mut);margin-left:auto}.lastin.late small{color:var(--acc2);font-weight:600}
+.wiz{position:fixed;inset:0;z-index:50;background:rgba(10,20,15,.55);display:flex;align-items:flex-end;justify-content:center;animation:wfade .15s}
+@keyframes wfade{from{opacity:0}}@keyframes wup{from{transform:translateY(30px);opacity:.4}}
+.wizbox{background:var(--card);color:var(--ink);width:100%;max-width:520px;max-height:92vh;display:flex;flex-direction:column;border-radius:20px 20px 0 0;box-shadow:0 -10px 40px rgba(0,0,0,.25);animation:wup .2s}
+@media (min-width:640px){.wiz{align-items:center}.wizbox{border-radius:20px;max-height:85vh}}
+.wizhead{display:flex;justify-content:space-between;align-items:flex-start;padding:16px 18px 10px}.wizstep{font-size:12.5px;color:var(--mut)}.wiztitle{font-size:13px;font-weight:700;color:var(--acc);text-transform:uppercase;letter-spacing:.6px;margin-top:2px}
+.wizx{border:0;background:var(--bg);color:var(--ink);width:36px;height:36px;border-radius:18px;font-size:16px;cursor:pointer;flex:none}
+.wizbar{height:5px;background:var(--line);margin:0 18px;border-radius:3px;overflow:hidden}.wizbar i{display:block;height:100%;background:var(--acc);border-radius:3px;transition:width .25s}
+.wizbody{padding:18px 18px 8px;overflow-y:auto;flex:1}.wizq{font-size:20px;font-weight:650;line-height:1.3;margin:0 0 14px}
+.wizbody input{width:100%;font:inherit;font-size:26px;font-weight:600;text-align:right;padding:14px 16px;border:2px solid var(--acc);border-radius:14px;background:var(--bg);color:var(--ink);font-variant-numeric:tabular-nums;outline:none}
+.wizbody textarea{width:100%;font:inherit;font-size:13px;padding:10px;border:2px solid var(--acc);border-radius:12px;background:var(--bg);color:var(--ink)}
+.wizbody .ghost.wide{margin-top:14px}.wizbody .warn{min-height:1em;margin:8px 2px 0}
+.wizfoot{display:flex;gap:10px;padding:12px 18px calc(16px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}.wizfoot button{flex:1;padding:13px 10px;font-size:15.5px}.wizfoot button:disabled{opacity:.4}
+.preview.big{font-size:15.5px;gap:8px;margin:0 0 12px}.wizsum{font-size:13.5px}.wizsum td:first-child{color:var(--mut)}
 </style>
 </head>
 <body>
@@ -88,11 +108,11 @@ a.card.link{display:block;color:inherit;text-decoration:none}a.card.link:active{
 </nav>
 <div id="toasts"></div>
 <script src="config.js"></script>
-<script src="calc.js"></script>
-<script src="charts.js"></script>
-<script src="xlsx.js"></script>
-<script src="avanza.js"></script>
-<script src="store.js"></script>
-<script src="app.js"></script>
+<script src="calc.js?v=1.6.0"></script>
+<script src="charts.js?v=1.6.0"></script>
+<script src="xlsx.js?v=1.6.0"></script>
+<script src="avanza.js?v=1.6.0"></script>
+<script src="store.js?v=1.6.0"></script>
+<script src="app.js?v=1.6.0"></script>
 </body>
 </html>
