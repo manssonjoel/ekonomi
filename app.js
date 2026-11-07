@@ -1,5 +1,5 @@
 /* Ekonomi – appens gränssnitt */
-window.EKONOMI_VERSION = '1.8.0';
+window.EKONOMI_VERSION = '1.8.1';
 (function () {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
@@ -295,6 +295,7 @@ window.EKONOMI_VERSION = '1.8.0';
     const val = o => o.Aval + (inclS ? o.Sval : 0) + (inclB ? o.Dval : 0);
     const own = o => o.Aown + (inclS ? o.SinvG : 0) + (inclB ? o.Dinv : 0);
     const out = S.out, years = [...new Set(out.map(o => o.year))];
+    let ackSkatt = 0, ackVinst = 0;
     return years.map(y => {
       const rows = out.filter(o => o.year === y), last = rows[rows.length - 1], prevRow = out[out.indexOf(rows[0]) - 1];
       const at = d => { let v = null; for (const o of out) { if (o.d <= d) v = o; else break; } return v || rows[0]; };
@@ -306,34 +307,40 @@ window.EKONOMI_VERSION = '1.8.0';
       const vinst = (val(last) - val(start)) - (own(last) - own(start));        // årets avkastning (inkl. utdelningar)
       const af = Math.max(0, vinst) * 0.3;                                         // skatt om vinsten tas ut på vanlig depå
       const pctAvk = ku ? vinst / ku : null, brytpunkt = ku ? skatt / 0.3 / ku : null;
-      return { y, ku, rate, fri, skatt, vinst, af, diff: af - skatt, pctAvk, brytpunkt, delar: rows.length && last.d.slice(5) < '12-20', known: iskKnown(y), last };
+      ackSkatt += skatt; ackVinst += vinst;
+      // vanlig depå: skatt först vid försäljning – 30 % av hela vinsten sedan start (förluster räknas av)
+      const afAck = Math.max(0, ackVinst) * 0.3;
+      return { y, ku, rate, fri, skatt, vinst, af, pctAvk, brytpunkt, delar: rows.length && last.d.slice(5) < '12-20', known: iskKnown(y), last,
+        ackSkatt, ackVinst, afAck, diffAck: afAck - ackSkatt };
     });
   }
   function viewIsk() {
-    const ar = iskPerAr(), cur = ar[ar.length - 1], st = S.data.settings || {};
+    const ar = iskPerAr(), cur = ar[ar.length - 1], st = S.data.settings || {}, first = ar[0];
     const tog = (key, label) => h('label', { class: 'acc' }, h('input', { type: 'checkbox', checked: st[key] ? true : null, onchange: ev => commit(d => { d.settings = d.settings || {}; d.settings[key] = ev.target.checked; }, null) }), h('span', {}, label));
-    const tot = ar.reduce((a, x) => a + x.diff, 0);
     return h('div', { class: 'view' }, h('a', { class: 'back', href: '#avkastning' }, '‹ Avkastning'),
       h('section', { class: 'hero' }, h('div', { class: 'lbl' }, `ISK-skatt ${cur.y}${cur.delar ? ' (beräknad hittills)' : ''}`), h('div', { class: 'huge' }, kr(cur.skatt)),
         h('div', { class: 'sub' }, `kapitalunderlag ${kr(cur.ku)} · ${nf2.format(cur.rate * 100)} % × 30 %` + (cur.fri ? ` · ${mkr(cur.fri)} skattefritt` : '') + (cur.known ? '' : ' · prognos'))),
-      card('ISK eller vanlig depå – ' + cur.y, null,
+      card('Om du sålde allt idag', null,
         h('div', { class: 'grid2' },
-          stat('Din avkastning i år', pct(cur.pctAvk), krS(cur.vinst), cls(cur.vinst)),
-          stat('Brytpunkt', pct(cur.brytpunkt, false), 'ISK lönar sig över denna avkastning'),
-          stat('Skatt på ISK', kr(cur.skatt)), stat('Skatt på vanlig depå', kr(cur.af), '30 % om vinsten tas ut')),
-        h('div', { class: 'verdict ' + (cur.diff >= 0 ? 'pos' : 'neg') }, cur.diff >= 0 ? `ISK sparar dig ${kr(cur.diff)} i år` : `Vanlig depå hade varit ${kr(-cur.diff)} billigare i år`)),
-      card('År för år', null, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['År', 'Avkastning', 'ISK-skatt', 'Depå-skatt', 'ISK ger'].map(x => h('th', {}, x)))),
-        h('tbody', {}, ar.slice().reverse().map(x => h('tr', {}, h('td', {}, x.y + (x.delar ? '*' : '')), h('td', { class: cls(x.pctAvk) }, pct(x.pctAvk)), h('td', {}, nf0.format(x.skatt)), h('td', {}, nf0.format(x.af)), h('td', { class: cls(x.diff) }, (x.diff > 0 ? '+' : '') + nf0.format(x.diff))))),
-        h('tfoot', {}, h('tr', {}, h('td', {}, 'Totalt'), h('td', {}, ''), h('td', {}, ''), h('td', {}, ''), h('td', { class: cls(tot) }, (tot > 0 ? '+' : '') + nf0.format(tot))))),
-        h('p', { class: 'note' }, '* pågående år. "ISK ger" = skatten du slipper jämfört med vanlig depå. Avkastningen räknas på kapitalunderlaget.')),
+          stat('Vinst sedan ' + first.y, krS(cur.ackVinst), null, cls(cur.ackVinst)),
+          stat('ISK-skatt betald totalt', kr(cur.ackSkatt), `${ar.length} år, varje år oavsett resultat`),
+          stat('Skatt på vanlig depå', kr(cur.afAck), '30 % av vinsten, en gång vid försäljning'),
+          stat('Brytpunkt ' + cur.y, pct(cur.brytpunkt, false), `i år: ${pct(cur.pctAvk)}`)),
+        h('div', { class: 'verdict ' + (cur.diffAck >= 0 ? 'pos' : 'neg') }, cur.diffAck >= 0 ? `ISK har sparat dig ${kr(cur.diffAck)}` : `Vanlig depå hade varit ${kr(-cur.diffAck)} billigare`),
+        h('p', { class: 'note' }, `Brytpunkten är den avkastning där årets ISK-skatt blir lika stor som 30 % av vinsten. Över den lönar sig ISK det året.`)),
+      card('Över tid', null, h('div', { class: 'scrollx' }, h('table', { class: 'tbl tight' }, h('thead', {}, h('tr', {}, ['År', 'Avk.', 'ISK-skatt', 'ISK tot.', 'Depå*', 'ISK ger'].map(x => h('th', {}, x)))),
+        h('tbody', {}, ar.slice().reverse().map(x => h('tr', {}, h('td', {}, x.y + (x.delar ? '·' : '')), h('td', { class: cls(x.pctAvk) }, pct(x.pctAvk)), h('td', {}, nf0.format(x.skatt)),
+          h('td', {}, nf0.format(x.ackSkatt)), h('td', {}, nf0.format(x.afAck)), h('td', { class: cls(x.diffAck) }, (x.diffAck > 0 ? '+' : '') + nf0.format(x.diffAck))))))),
+        h('p', { class: 'note' }, 'Avk. = årets avkastning. ISK tot. = summan av alla års ISK-skatt. * Depå = skatten om du hade sålt allt vid årets slut: 30 % av all vinst sedan start, förluster avräknade. · = pågående år.')),
       card('Vilka konton är ISK eller kapitalförsäkring?', null, h('p', { class: 'note' }, 'Avanza räknas alltid med (ISK och kapitalförsäkring). Konton du stängt av ingår inte.'),
         tog('iskSavr', 'SAVR är ISK'), tog('iskBank', `${bankNamn()} är ISK`)),
       card('Så räknas det', null, h('ul', { class: 'note' },
-        h('li', {}, 'Kapitalunderlag = (värdet vid varje kvartals början + årets insättningar) / 4.'),
+        h('li', {}, 'ISK: skatt varje år på kapitalunderlaget, oavsett om det gått upp eller ned. Kapitalunderlag = (värdet vid varje kvartals början + årets insättningar) / 4.'),
         h('li', {}, 'Skatt = (kapitalunderlag − skattefri grundnivå) × schablonränta × 30 %. Schablonräntan är statslåneräntan 30 november året innan + 1 %.'),
-        h('li', {}, 'Vanlig depå: 30 % skatt på årets avkastning, som om allt såldes vid årets slut. Förluster ger ingen skatt (avdrag räknas inte med).'),
-        h('li', {}, 'Den skattefria nivån gäller per person för ISK och kapitalförsäkring tillsammans. Beräkningen är en uppskattning – den riktiga skatten står i deklarationen.'))));
+        h('li', {}, 'Vanlig depå: 30 % skatt på vinsten när du säljer. Förluster räknas av mot vinster. Utdelningar beskattas egentligen varje år på en depå, och pengar som betalats i ISK-skatt har inte kunnat växa vidare – båda effekterna är små och räknas inte med.'),
+        h('li', {}, 'Vinsten räknas från första veckan i appen. Den skattefria nivån gäller per person för ISK och kapitalförsäkring tillsammans. Allt är uppskattningar – den riktiga skatten står i deklarationen.'))));
   }
+
 
 
   // ---------------------------------------------------------------- årssammanfattning (utskrivbar / PDF)
@@ -387,7 +394,8 @@ window.EKONOMI_VERSION = '1.8.0';
       h('section', { class: 'card' }, h('h2', {}, 'Avkastning per månad'), C.bars(MONL.map(m => m.slice(0, 3)), [{ name: 'Avkastning', values: man }], { labels: false })),
       innehav,
       isk ? h('section', { class: 'card' }, h('h2', {}, 'ISK-skatt'), h('p', {}, `Beräknad skatt ${kr(isk.skatt)} på kapitalunderlag ${kr(isk.ku)}. `,
-        isk.diff >= 0 ? `ISK sparade ${kr(isk.diff)} jämfört med vanlig depå.` : `Vanlig depå hade varit ${kr(-isk.diff)} billigare.`)) : null,
+        `ISK-skatt totalt sedan ${iskPerAr()[0].y}: ${kr(isk.ackSkatt)}. Hade allt sålts vid årets slut på en vanlig depå hade skatten blivit ${kr(isk.afAck)} – `,
+        isk.diffAck >= 0 ? `ISK har sparat ${kr(isk.diffAck)}.` : `vanlig depå hade varit ${kr(-isk.diffAck)} billigare.`)) : null,
       prev ? h('section', { class: 'card' }, h('h2', {}, `Jämfört med ${y - 1}`), h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['', String(y - 1), String(y)].map(x => h('th', {}, x)))),
         h('tbody', {}, [['Avkastning', pct(prev.Y), pct(o.Y)], ['Avkastat', kr(prev.U), kr(o.U)], ['Sparat', kr(prev.sparatAr), kr(o.sparatAr)], ['Sparkvot', prev.sparkvotAr === null ? '–' : pct(prev.sparkvotAr, false), o.sparkvotAr === null ? '–' : pct(o.sparkvotAr, false)],
           ['Utdelningar', kr(prev.utdAr + prev.aterAr), kr(o.utdAr + o.aterAr)], ['Förmögenhet', kr(prev.formogenhet), kr(o.formogenhet)]].map(r => h('tr', {}, r.map(c => h('td', {}, c))))))) : null);
