@@ -111,10 +111,10 @@
       if (INCOME.has(r.typ)) { Y(y).ranta += cash; continue; }
       const id = idOf(r); if (!id) continue;
       const gid = find(id);
-      const g = G.get(gid) || G.set(gid, { id: gid, acc: new Map(), bought: 0, proceeds: 0, removed: 0, div: 0, names: [], tx: [], first: r.d, last: r.d, isins: new Set() }).get(gid);
+      const g = G.get(gid) || G.set(gid, { id: gid, acc: new Map(), ry: {}, dy: {}, bought: 0, proceeds: 0, removed: 0, div: 0, names: [], tx: [], first: r.d, last: r.d, isins: new Set() }).get(gid);
       g.tx.push(r); g.last = r.d; if (r.isin) g.isins.add(r.isin);
       if (r.namn && (r.typ === 'Köp' || r.typ === 'Sälj')) g.names.push(r.namn);
-      if (DIV.has(r.typ)) { g.div += cash; if (r.typ === 'Utdelning') Y(y).utd += cash; else Y(y).kallskatt += cash; continue; }
+      if (DIV.has(r.typ)) { g.dy[y] = (g.dy[y] || 0) + cash; g.div += cash; if (r.typ === 'Utdelning') Y(y).utd += cash; else Y(y).kallskatt += cash; continue; }
       // genomsnittsmetoden räknas per konto, som hos Avanza
       const q = r.antal || 0, A = g.acc.get(r.konto) || g.acc.set(r.konto, { qty: 0, cost: 0 }).get(r.konto);
       if (q > 0) { if (cash < 0 && !CONV.has(r.typ)) { A.cost += -cash; g.bought += -cash; } A.qty += q; }
@@ -122,13 +122,13 @@
         if (CONV.has(r.typ)) A.qty += q;
         else {
           const frac = A.qty > 1e-9 ? Math.min(1, -q / A.qty) : 1, rem = A.cost * frac;
-          A.cost -= rem; g.removed += rem; A.qty += q; Y(y).realiserat -= rem;
-          if (cash > 0) { g.proceeds += cash; Y(y).realiserat += cash; }
+          A.cost -= rem; g.removed += rem; A.qty += q; Y(y).realiserat -= rem; g.ry[y] = (g.ry[y] || 0) - rem;
+          if (cash > 0) { g.proceeds += cash; Y(y).realiserat += cash; g.ry[y] += cash; }
           if (Math.abs(A.qty) < 1e-6) { A.qty = 0; A.cost = 0; }
         }
       } else {
         if (cash < 0) { A.cost += -cash; g.bought += -cash; }
-        else if (cash > 0) { g.proceeds += cash; Y(y).realiserat += cash; }
+        else if (cash > 0) { g.proceeds += cash; Y(y).realiserat += cash; g.ry[y] = (g.ry[y] || 0) + cash; }
       }
     }
     const groups = [...G.values()].map(g => {
@@ -219,6 +219,23 @@
     return out;
   }
 
-  const api = { parseCSV, merge, parseHoldings, analyze, num, accounts, weekFlows, excludedValues, typeOf };
+
+  // ---------------------------------------------------------------- utveckling per innehav mellan två inklistrade listor
+  // kr = värde nu − värde då − (köp − sälj däremellan);  % = kr / (värde då + nettoköp om positivt)
+  function perf(tx, an, snapA, snapB) {
+    const sum = snap => { const m = new Map(); (snap.items || []).forEach(i => { const k = norm(i.name); const o = m.get(k) || { name: i.name, typ: i.typ, v: 0 }; o.v += i.varde; m.set(k, o); }); return m; };
+    const A = sum(snapA), B = sum(snapB), keys = new Set([...A.keys(), ...B.keys()]), res = [];
+    const flowOf = k => { let f = 0; an.groups.forEach(g => { if (!g.allNames.has(k)) return;
+      g.tx.forEach(t => { if (t.d > snapA.date && t.d <= snapB.date && SECCASH.has(t.typ) && t.belopp) f += -t.belopp; }); }); return f; };
+    keys.forEach(k => {
+      const a = A.get(k), b = B.get(k), va = a ? a.v : 0, vb = b ? b.v : 0, net = flowOf(k);
+      const kr = vb - va - net, base = va + Math.max(net, 0);
+      if (!va && !vb) return;
+      res.push({ name: (b || a).name, typ: (b || a).typ, kr, pct: base > 0 ? kr / base : null, va, vb, net });
+    });
+    return res.sort((x, y) => y.kr - x.kr);
+  }
+
+  const api = { parseCSV, merge, parseHoldings, analyze, num, accounts, weekFlows, excludedValues, typeOf, perf };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Avanza = api;
 })(this);

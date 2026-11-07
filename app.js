@@ -1,5 +1,5 @@
 /* Ekonomi – appens gränssnitt */
-window.EKONOMI_VERSION = '1.6.0';
+window.EKONOMI_VERSION = '1.8.0';
 (function () {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
@@ -181,8 +181,8 @@ window.EKONOMI_VERSION = '1.6.0';
         h('div', { class: 'lbl' }, 'Total förmögenhet · ' + dstr(o.d)),
         h('div', { class: 'huge' }, kr(o.formogenhet)),
         h('div', { class: 'sub' }, h('span', { class: cls(o.formAr) }, krS(o.formAr)), ' i år'),
-        mal ? h('div', { class: 'goal' }, h('div', { class: 'bar' }, h('i', { style: `width:${Math.min(100, o.formogenhet / mal * 100)}%` })),
-          h('div', { class: 'sub' }, `${nf1.format(o.formogenhet / mal * 100)} % av målet ${mkr(mal)}`)) : null),
+        mal ? h('a', { class: 'goal link', href: '#prognos' }, h('div', { class: 'bar' }, h('i', { style: `width:${Math.min(100, o.formogenhet / mal * 100)}%` })),
+          h('div', { class: 'sub' }, `${nf1.format(o.formogenhet / mal * 100)} % av målet ${mkr(mal)}`, prognosKort(o, mal))) : null),
       card('Avkastning', '#avkastning', h('div', { class: 'grid3' },
         stat(periodLabel(n - 1), pct(o.X), krS(o.W), cls(o.X)), stat('I år', pct(o.Y), krS(o.U), cls(o.Y)), stat('Totalt', pct(o.P), krS(o.V), cls(o.P)))),
       card('Konton', null, h('div', { class: 'acclist' },
@@ -198,6 +198,201 @@ window.EKONOMI_VERSION = '1.6.0';
         G[ch[0]](slice())));
   }
 
+
+  // ---------------------------------------------------------------- prognos för målet
+  // Historisk avkastning: genomsnitt per år (geometriskt) för hela kalenderår
+  function histAvk() {
+    const first = S.out[0].d; // första året räknas bara om det börjar i januari
+    const y = Calc.years(S.out).filter((x, i, a) => i < a.length - 1 && x.Y !== null && (i > 0 || first.slice(5, 7) === '01'));
+    if (!y.length) return null;
+    const g = y.reduce((p, x) => p * (1 + x.Y), 1);
+    return { r: Math.pow(g, 1 / y.length) - 1, from: y[0].year, to: y[y.length - 1].year };
+  }
+  // Snittsparande per månad senaste 12 månaderna (ökning av egna insatta pengar + kassa)
+  function snittSpar12() {
+    const out = S.out, o = out[out.length - 1], from = shiftYears(o.d, -1);
+    const a = out.find(x => x.d >= from) || out[0];
+    const months = Math.max(1, daysBetween(a.d, o.d) / 30.44);
+    return ((o.K + o.kassa) - (a.K + a.kassa)) / months;
+  }
+  function progAnt() {
+    let st = {}; try { st = JSON.parse(localStorage.getItem('ek.prognos') || '{}'); } catch (e) { }
+    const hs = histAvk();
+    return { r: st.r ?? 0.07, s: st.s ?? Math.max(0, Math.round(snittSpar12() / 500) * 500), ar: st.ar ?? (new Date().getFullYear() + 3), hist: hs };
+  }
+  // Månadsvis framskrivning: portföljen växer med r per år, kassan står still, sparandet går in varje månad
+  function framskriv(o, r, s, maxMan = 480, mal = Infinity) {
+    const rm = Math.pow(1 + r, 1 / 12) - 1; let N = o.N; const Q = o.kassa, pts = [o.formogenhet]; let hit = null;
+    for (let m = 1; m <= maxMan; m++) { N = N * (1 + rm) + s; pts.push(N + Q); if (hit === null && N + Q >= mal) hit = m; }
+    return { pts, hit };
+  }
+  const manadStr = (d0, m) => { const d = new Date(d0 + 'T12:00:00'); d.setMonth(d.getMonth() + m); return MONL[d.getMonth()] + ' ' + d.getFullYear(); };
+  const MONL = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
+  const tidStr = m => { const y = Math.floor(m / 12), mm = m % 12; return [y ? y + ' år' : '', mm ? mm + ' mån' : ''].filter(Boolean).join(' ') || 'nu'; };
+  function prognosKort(o, mal) {
+    if (o.formogenhet >= mal) return ' · målet är nått!';
+    const a = progAnt(), f = framskriv(o, a.r, a.s, 600, mal);
+    return f.hit ? ` · nås ${manadStr(o.d, f.hit)} ›` : ' ›';
+  }
+  // Månadssparande som krävs för att nå målet vid en viss tidpunkt (binärsökning)
+  function kravSpar(o, r, mal, man) {
+    if (man <= 0) return null; let lo = 0, hi = 1e6;
+    if (framskriv(o, r, 0, man).pts[man] >= mal) return 0;
+    for (let k = 0; k < 50; k++) { const mid = (lo + hi) / 2; if (framskriv(o, r, mid, man).pts[man] >= mal) hi = mid; else lo = mid; }
+    return hi;
+  }
+  function viewPrognos() {
+    const out = S.out, o = out[out.length - 1], mal = (S.data.settings && S.data.settings.mal) || 0;
+    const a = progAnt(), save = () => localStorage.setItem('ek.prognos', JSON.stringify({ r: a.r, s: a.s, ar: a.ar }));
+    if (!mal) return h('div', { class: 'view' }, back(), card('Prognos', null, h('p', {}, 'Ange ett mål för förmögenheten under Mer › Inställningar.')));
+    const box = h('div');
+    const slider = (label, min, max, step, val, fmtV, on) => {
+      const out = h('b', {}, fmtV(val));
+      const inp = h('input', { type: 'range', min, max, step, value: val, oninput: ev => { const v = +ev.target.value; out.textContent = fmtV(v); on(v); save(); draw(); } });
+      return h('label', { class: 'sld' }, h('div', {}, h('span', {}, label), out), inp);
+    };
+    const pctF = v => nf1.format(v * 100) + ' %';
+    function draw() {
+      const scen = [['Försiktig', a.r - 0.03, 'c6'], ['Ditt antagande', a.r, 'c1'], ['Optimistisk', a.r + 0.03, 'c2']]
+        .map(([n, r, cl]) => ({ n, r, cl, f: framskriv(o, r, a.s, 600, mal) }));
+      const base = scen[1].f, horizon = Math.min(600, Math.max(36, (base.hit || 240) + 24));
+      const dates = Array.from({ length: horizon + 1 }, (_, m) => { const d = new Date(o.d + 'T12:00:00'); d.setMonth(d.getMonth() + m); return d.toISOString().slice(0, 10); });
+      const krav = kravSpar(o, a.r, mal, Math.round(daysBetween(o.d, a.ar + '-12-31') / 30.44));
+      const steg = []; for (let v = Math.ceil(o.formogenhet / 5e5) * 5e5; v <= mal + 1 && steg.length < 8; v += 5e5) steg.push(v);
+      box.replaceChildren(
+        h('section', { class: 'hero' }, h('div', { class: 'lbl' }, `Målet ${mkr(mal)} nås`),
+          h('div', { class: 'huge' }, o.formogenhet >= mal ? 'Nu!' : base.hit ? manadStr(o.d, base.hit) : 'inte inom 50 år'),
+          h('div', { class: 'sub' }, base.hit ? `om ${tidStr(base.hit)} · med ${kr(a.s)}/mån och ${pctF(a.r)} per år` : 'Öka sparandet eller avkastningen.')),
+        ctrl,
+        card('Framskrivning', null, C.line(dates, scen.map(x => ({ name: `${x.n} (${pctF(x.r)})`, values: x.f.pts.slice(0, horizon + 1), cls: x.cl, dash: x.cl !== 'c1' }))
+          .concat([{ name: 'Mål', values: dates.map(() => mal), cls: 'c4', dash: true }])),
+          legend(scen.map(x => [x.cl, `${x.n}: ${x.f.hit ? manadStr(o.d, x.f.hit) : '–'}`]))),
+        card('Delmål', null, h('table', { class: 'tbl' }, h('tbody', {}, steg.map(v => { const m = base.pts.findIndex(p => p >= v);
+          return h('tr', {}, h('td', {}, mkr(v)), h('td', {}, m < 0 ? '–' : m === 0 ? 'nått' : manadStr(o.d, m)), h('td', { class: 'small' }, m > 0 ? 'om ' + tidStr(m) : '')); })))),
+        card(`Nå målet till slutet av ${a.ar}`, null, h('p', {}, krav === null ? 'Välj ett senare år.' : krav === 0 ? 'Det klarar du utan att spara mer, om avkastningen håller.' :
+          h('span', {}, 'Då behöver du spara ', h('b', {}, kr(krav) + '/mån'), ` med ${pctF(a.r)} avkastning per år.`)),
+          slider('År', new Date().getFullYear() + 1, new Date().getFullYear() + 25, 1, a.ar, v => String(v), v => a.ar = v)));
+    }
+    const ref = a.hist ? `Din historiska avkastning ${a.hist.from}–${a.hist.to}: ${pctF(a.hist.r)} per år. Snittsparande senaste 12 mån: ${kr(snittSpar12())}/mån.` : '';
+    const ctrl = card('Antaganden', null,
+      slider('Avkastning per år', 0, 0.15, 0.005, a.r, pctF, v => a.r = v),
+      slider('Sparande per månad', 0, 60000, 500, a.s, v => kr(v), v => a.s = v),
+      h('p', { class: 'note' }, ref, ' Kassan antas stå still och sparandet läggs i portföljen. Prognosen är en räkneövning, inte ett löfte.'));
+    draw();
+    return h('div', { class: 'view' }, back(), box);
+  }
+
+
+  // ---------------------------------------------------------------- ISK-skatt och jämförelse med vanlig depå
+  // Schablonränta (statslåneränta 30 nov året innan + 1 %, golv 1,25 % t.o.m. 2023) och skattefri grundnivå per inkomstår
+  const ISK_RATE = { 2019: .0151, 2020: .0125, 2021: .0125, 2022: .0125, 2023: .0294, 2024: .0362, 2025: .0296, 2026: .0355 };
+  const ISK_FRI = { 2025: 150000, 2026: 300000 };
+  const iskRate = y => ISK_RATE[y] ?? ISK_RATE[Math.max(...Object.keys(ISK_RATE).map(Number))];
+  const iskFri = y => y < 2025 ? 0 : (ISK_FRI[y] ?? 300000);
+  const iskKnown = y => y in ISK_RATE;
+  function iskPerAr() {
+    const st = S.data.settings || {}, inclS = !!st.iskSavr, inclB = !!st.iskBank;
+    const val = o => o.Aval + (inclS ? o.Sval : 0) + (inclB ? o.Dval : 0);
+    const own = o => o.Aown + (inclS ? o.SinvG : 0) + (inclB ? o.Dinv : 0);
+    const out = S.out, years = [...new Set(out.map(o => o.year))];
+    return years.map(y => {
+      const rows = out.filter(o => o.year === y), last = rows[rows.length - 1], prevRow = out[out.indexOf(rows[0]) - 1];
+      const at = d => { let v = null; for (const o of out) { if (o.d <= d) v = o; else break; } return v || rows[0]; };
+      const q = ['01-01', '04-01', '07-01', '10-01'].map(m => { const d = y + '-' + m; return d <= last.d ? val(at(d)) : val(last); });
+      let ins = 0; rows.forEach(o => { const i = out.indexOf(o); if (i > 0) ins += Math.max(0, own(o) - own(out[i - 1])); });
+      const ku = (q.reduce((a, b) => a + b, 0) + ins) / 4, rate = iskRate(y), fri = iskFri(y);
+      const skatt = Math.max(0, ku - fri) * rate * 0.3;
+      const start = prevRow || rows[0];
+      const vinst = (val(last) - val(start)) - (own(last) - own(start));        // årets avkastning (inkl. utdelningar)
+      const af = Math.max(0, vinst) * 0.3;                                         // skatt om vinsten tas ut på vanlig depå
+      const pctAvk = ku ? vinst / ku : null, brytpunkt = ku ? skatt / 0.3 / ku : null;
+      return { y, ku, rate, fri, skatt, vinst, af, diff: af - skatt, pctAvk, brytpunkt, delar: rows.length && last.d.slice(5) < '12-20', known: iskKnown(y), last };
+    });
+  }
+  function viewIsk() {
+    const ar = iskPerAr(), cur = ar[ar.length - 1], st = S.data.settings || {};
+    const tog = (key, label) => h('label', { class: 'acc' }, h('input', { type: 'checkbox', checked: st[key] ? true : null, onchange: ev => commit(d => { d.settings = d.settings || {}; d.settings[key] = ev.target.checked; }, null) }), h('span', {}, label));
+    const tot = ar.reduce((a, x) => a + x.diff, 0);
+    return h('div', { class: 'view' }, h('a', { class: 'back', href: '#avkastning' }, '‹ Avkastning'),
+      h('section', { class: 'hero' }, h('div', { class: 'lbl' }, `ISK-skatt ${cur.y}${cur.delar ? ' (beräknad hittills)' : ''}`), h('div', { class: 'huge' }, kr(cur.skatt)),
+        h('div', { class: 'sub' }, `kapitalunderlag ${kr(cur.ku)} · ${nf2.format(cur.rate * 100)} % × 30 %` + (cur.fri ? ` · ${mkr(cur.fri)} skattefritt` : '') + (cur.known ? '' : ' · prognos'))),
+      card('ISK eller vanlig depå – ' + cur.y, null,
+        h('div', { class: 'grid2' },
+          stat('Din avkastning i år', pct(cur.pctAvk), krS(cur.vinst), cls(cur.vinst)),
+          stat('Brytpunkt', pct(cur.brytpunkt, false), 'ISK lönar sig över denna avkastning'),
+          stat('Skatt på ISK', kr(cur.skatt)), stat('Skatt på vanlig depå', kr(cur.af), '30 % om vinsten tas ut')),
+        h('div', { class: 'verdict ' + (cur.diff >= 0 ? 'pos' : 'neg') }, cur.diff >= 0 ? `ISK sparar dig ${kr(cur.diff)} i år` : `Vanlig depå hade varit ${kr(-cur.diff)} billigare i år`)),
+      card('År för år', null, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['År', 'Avkastning', 'ISK-skatt', 'Depå-skatt', 'ISK ger'].map(x => h('th', {}, x)))),
+        h('tbody', {}, ar.slice().reverse().map(x => h('tr', {}, h('td', {}, x.y + (x.delar ? '*' : '')), h('td', { class: cls(x.pctAvk) }, pct(x.pctAvk)), h('td', {}, nf0.format(x.skatt)), h('td', {}, nf0.format(x.af)), h('td', { class: cls(x.diff) }, (x.diff > 0 ? '+' : '') + nf0.format(x.diff))))),
+        h('tfoot', {}, h('tr', {}, h('td', {}, 'Totalt'), h('td', {}, ''), h('td', {}, ''), h('td', {}, ''), h('td', { class: cls(tot) }, (tot > 0 ? '+' : '') + nf0.format(tot))))),
+        h('p', { class: 'note' }, '* pågående år. "ISK ger" = skatten du slipper jämfört med vanlig depå. Avkastningen räknas på kapitalunderlaget.')),
+      card('Vilka konton är ISK eller kapitalförsäkring?', null, h('p', { class: 'note' }, 'Avanza räknas alltid med (ISK och kapitalförsäkring). Konton du stängt av ingår inte.'),
+        tog('iskSavr', 'SAVR är ISK'), tog('iskBank', `${bankNamn()} är ISK`)),
+      card('Så räknas det', null, h('ul', { class: 'note' },
+        h('li', {}, 'Kapitalunderlag = (värdet vid varje kvartals början + årets insättningar) / 4.'),
+        h('li', {}, 'Skatt = (kapitalunderlag − skattefri grundnivå) × schablonränta × 30 %. Schablonräntan är statslåneräntan 30 november året innan + 1 %.'),
+        h('li', {}, 'Vanlig depå: 30 % skatt på årets avkastning, som om allt såldes vid årets slut. Förluster ger ingen skatt (avdrag räknas inte med).'),
+        h('li', {}, 'Den skattefria nivån gäller per person för ISK och kapitalförsäkring tillsammans. Beräkningen är en uppskattning – den riktiga skatten står i deklarationen.'))));
+  }
+
+
+  // ---------------------------------------------------------------- årssammanfattning (utskrivbar / PDF)
+  function viewAr(yq) {
+    if (!AV.loaded) avLoad().then(() => { if (location.hash.startsWith('#ar')) render(); });
+    const out = S.out, years = [...new Set(out.map(o => o.year))], y = +(yq || years[years.length - 1]);
+    const rows = out.filter(o => o.year === y); if (!rows.length) return h('div', { class: 'view' }, back(), card('Årssammanfattning', null, h('p', {}, 'Inga veckor finns för ' + y + '.')));
+    const o = rows[rows.length - 1], i0 = out.indexOf(rows[0]), start = i0 > 0 ? out[i0 - 1] : rows[0];
+    const yrs = Calc.years(out), prev = yrs.find(x => x.year === y - 1), mal = (S.data.settings || {}).mal || 0;
+    const pagaende = o.d.slice(5) < '12-20';
+    const forandr = o.formogenhet - start.formogenhet;
+    // avkastning per månad
+    const man = Array(12).fill(null); rows.forEach(r => { const m = +r.d.slice(5, 7) - 1; man[m] = (man[m] || 0) + r.W; });
+    const isk = iskPerAr().find(x => x.y === y);
+    const big = (l, v, sub, c) => h('div', { class: 'arstat' }, h('div', { class: 'lbl' }, l), h('div', { class: 'big ' + (c || '') }, v), sub ? h('div', { class: 'sub' }, sub) : null);
+    const jmf = (v, p, f = kr) => p === undefined || p === null ? null : `${y - 1}: ${f(p)}`;
+    // innehav (från Avanza-transaktionerna)
+    let innehav = null;
+    if (AV.an) {
+      const g = AV.an.groups;
+      const utd = g.map(x => ({ n: x.name, v: x.dy[y] || 0 })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
+      const real = g.map(x => ({ n: x.name, v: x.ry[y] || 0 })).filter(x => Math.abs(x.v) > 1).sort((a, b) => b.v - a.v);
+      const sn = avSnaps().filter(x => x.date.slice(0, 4) === String(y)), snPrev = avSnaps().filter(x => x.date < y + '-01-08').pop();
+      let bs = null;
+      if (sn.length && (snPrev || sn.length > 1)) { const A = snPrev || sn[0], B = sn[sn.length - 1]; if (A !== B) bs = { A, B, l: Avanza.perf(AV.data.tx, AV.an, A, B) }; }
+      const lst = (title, arr, n = 5) => arr.length ? h('div', {}, h('h3', {}, title), h('table', { class: 'tbl small' }, h('tbody', {}, arr.slice(0, n).map(x => h('tr', {}, h('td', {}, x.n), h('td', { class: cls(x.v) }, krS(x.v))))))) : null;
+      innehav = h('section', { class: 'card' }, h('h2', {}, 'Innehav på Avanza'),
+        bs ? h('div', { class: 'cols2' }, lst('Bäst', bs.l.filter(x => x.kr > 0).map(x => ({ n: x.name, v: x.kr }))), lst('Sämst', bs.l.filter(x => x.kr < 0).reverse().map(x => ({ n: x.name, v: x.kr })))) : null,
+        bs ? h('p', { class: 'note' }, `Bäst/sämst räknat ${dstr(bs.A.date)} – ${dstr(bs.B.date)}.`) : null,
+        h('div', { class: 'cols2' }, lst('Största utdelningarna', utd), lst('Realiserade resultat', real.filter(x => x.v > 0).concat(real.filter(x => x.v < 0).reverse().slice(0, 2)), 6)));
+    }
+    const knappar = h('div', { class: 'noprint arbar' },
+      h('div', { class: 'chips small' }, years.slice().reverse().map(yy => h('a', { class: 'chipa' + (yy === y ? ' on' : ''), href: '#ar?y=' + yy }, String(yy)))),
+      h('button', { class: 'primary', onclick: () => window.print() }, 'Spara som PDF / skriv ut'));
+    return h('div', { class: 'view arsida' }, h('a', { class: 'back noprint', href: '#avkastning' }, '‹ Avkastning'), knappar,
+      h('section', { class: 'arhead' }, h('div', { class: 'lbl' }, 'Årssammanfattning'), h('h1', {}, String(y) + (pagaende ? ' (hittills)' : '')),
+        h('div', { class: 'sub' }, `${dstr(rows[0].d)} – ${dstr(o.d)} · skapad ${dstr(today())}`)),
+      h('section', { class: 'card' }, h('div', { class: 'argrid' },
+        big('Förmögenhet vid ' + (pagaende ? 'senaste avläsning' : 'årets slut'), kr(o.formogenhet), `${krS(forandr)} under året`),
+        big('Avkastning', pct(o.Y), `${krS(o.U)} · pengaviktad ${pct(o.O)}`, cls(o.Y)),
+        big('Sparat', kr(o.sparatAr), prev ? jmf(o.sparatAr, prev.sparatAr) : '', cls(o.sparatAr)),
+        big('Sparkvot', o.sparkvotAr === null ? '–' : pct(o.sparkvotAr, false), o.lonAr ? `av ${kr(o.lonAr)} nettolön` : ''),
+        big('Utdelningar', kr(o.utdAr + o.aterAr), prev ? jmf(0, prev.utdAr + prev.aterAr) : ''),
+        mal ? big('Mot målet ' + mkr(mal), pct(o.formogenhet / mal, false), `${kr(Math.max(0, mal - o.formogenhet))} kvar`) : null)),
+      h('section', { class: 'card' }, h('h2', {}, 'Konton'), h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['', 'Värde', 'Utveckling', 'Avkastat'].map(x => h('th', {}, x)))),
+        h('tbody', {}, [['Avanza', o.Aval, o.avY, (o.Aval - o.Aown) - (start.Aval - start.Aown)], ['SAVR', o.Sval, o.svY, (o.Sval - o.SinvG) - (start.Sval - start.SinvG)],
+          [bankNamn(), o.Dval, o.dbY, (o.Dval - o.Dinv) - (start.Dval - start.Dinv)], ['Kassa', o.kassa, null, null]]
+          .map(([n, v, p, a]) => h('tr', {}, h('td', {}, n), h('td', {}, kr(v)), h('td', { class: cls(p) }, p === null ? '' : pct(p)), h('td', { class: cls(a) }, a === null ? '' : krS(a))))))),
+      h('section', { class: 'card' }, h('h2', {}, 'Förmögenhet under året'), C.line(rows.map(r => r.d), [{ name: 'Förmögenhet', values: rows.map(r => r.formogenhet), cls: 'c1', fill: true }, { name: 'Egna insatta pengar', values: rows.map(r => r.K + r.kassa), cls: 'c2', dash: true }], { zero: false }),
+        legend([['c1', 'Förmögenhet'], ['c2', 'Egna pengar + kassa']])),
+      h('section', { class: 'card' }, h('h2', {}, 'Avkastning per månad'), C.bars(MONL.map(m => m.slice(0, 3)), [{ name: 'Avkastning', values: man }], { labels: false })),
+      innehav,
+      isk ? h('section', { class: 'card' }, h('h2', {}, 'ISK-skatt'), h('p', {}, `Beräknad skatt ${kr(isk.skatt)} på kapitalunderlag ${kr(isk.ku)}. `,
+        isk.diff >= 0 ? `ISK sparade ${kr(isk.diff)} jämfört med vanlig depå.` : `Vanlig depå hade varit ${kr(-isk.diff)} billigare.`)) : null,
+      prev ? h('section', { class: 'card' }, h('h2', {}, `Jämfört med ${y - 1}`), h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['', String(y - 1), String(y)].map(x => h('th', {}, x)))),
+        h('tbody', {}, [['Avkastning', pct(prev.Y), pct(o.Y)], ['Avkastat', kr(prev.U), kr(o.U)], ['Sparat', kr(prev.sparatAr), kr(o.sparatAr)], ['Sparkvot', prev.sparkvotAr === null ? '–' : pct(prev.sparkvotAr, false), o.sparkvotAr === null ? '–' : pct(o.sparkvotAr, false)],
+          ['Utdelningar', kr(prev.utdAr + prev.aterAr), kr(o.utdAr + o.aterAr)], ['Förmögenhet', kr(prev.formogenhet), kr(o.formogenhet)]].map(r => h('tr', {}, r.map(c => h('td', {}, c))))))) : null);
+  }
+
   // ---------------------------------------------------------------- detaljsida: avkastning
   function viewAvkastning() {
     const out = S.out, o = out[out.length - 1], sl = slice(), y = yearsDone();
@@ -211,7 +406,8 @@ window.EKONOMI_VERSION = '1.6.0';
       card('Total avkastning', null, G.total(sl)),
       card('Utveckling på egna pengar', null, G.utv(sl)),
       card('Per år', null, G.perAr(), h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['År', 'Tidsviktad', 'Pengaviktad', 'Avkastat'].map(x => h('th', {}, x)))),
-        h('tbody', {}, y.slice().reverse().map(x => h('tr', {}, h('td', {}, x.label), h('td', { class: cls(x.Y) }, pct(x.Y)), h('td', { class: cls(x.O) }, pct(x.O)), h('td', {}, kr(x.U))))))));
+        h('tbody', {}, y.slice().reverse().map(x => h('tr', {}, h('td', {}, x.label), h('td', { class: cls(x.Y) }, pct(x.Y)), h('td', { class: cls(x.O) }, pct(x.O)), h('td', {}, kr(x.U))))))),
+      h('div', { class: 'links' }, h('a', { href: '#isk' }, 'ISK-skatt och jämförelse med vanlig depå ›'), h('a', { href: '#ar' }, 'Årssammanfattning ›')));
   }
 
   // ---------------------------------------------------------------- detaljsida: konto
@@ -557,7 +753,21 @@ window.EKONOMI_VERSION = '1.6.0';
     AV.loading = true;
     try { const r = await Store.loadAvanza(); AV.data = r.data; AV.etag = r.etag; AV.loaded = true; AV.err = null; avAnalyze(); }
     catch (e) { AV.err = e.message; }
-    AV.loading = false; if (location.hash.startsWith('#innehav')) render();
+    AV.loading = false; if (/^#(innehav|ar|mer)/.test(location.hash)) render();
+  }
+  function avSnaps() {
+    const d = AV.data; if (!d) return [];
+    const s = (d.snaps || []).slice();
+    if (d.holdings && !s.some(x => x.date === d.holdings.date)) s.push({ date: d.holdings.date, items: d.holdings.items });
+    return s.sort((a, b) => a.date < b.date ? -1 : 1);
+  }
+  // Bäst/sämst: 'v' = senaste veckan, 'y' = i år (sedan första listan i år, annars äldsta)
+  function bastSamst(kind) {
+    const s = avSnaps(); if (s.length < 2 || !AV.an) return null;
+    const B = s[s.length - 1]; let A;
+    if (kind === 'v') { A = s.filter(x => daysBetween(x.date, B.date) >= 5).pop() || s[s.length - 2]; }
+    else { A = s.filter(x => x.date < B.date.slice(0, 4) + '-01-08').pop() || s.find(x => x.date.slice(0, 4) === B.date.slice(0, 4)) || s[0]; if (A === B) A = s[s.length - 2]; }
+    return { A, B, list: Avanza.perf(AV.data.tx, AV.an, A, B) };
   }
   function avAnalyze() { AV.an = AV.data && (AV.data.tx || []).length ? Avanza.analyze(AV.data.tx, AV.data.holdings) : null; }
   async function avSave(mut, msg) {
@@ -584,7 +794,12 @@ window.EKONOMI_VERSION = '1.6.0';
   async function avSaveHoldings(text) {
     const h = Avanza.parseHoldings(text);
     if (!AV.loaded) await avLoad();
-    await avSave(d => { d.holdings = { date: today(), items: h.items, totals: h.totals }; }, `Kurser uppdaterade (${h.items.length} innehav)`);
+    await avSave(d => {
+      d.holdings = { date: today(), items: h.items, totals: h.totals };
+      // ögonblicksbild per dag (används för bäst/sämst och årssammanfattning)
+      const slim = h.items.map(i => ({ name: i.name, typ: i.typ, varde: i.varde }));
+      d.snaps = (d.snaps || []).filter(x => x.date !== d.holdings.date).concat([{ date: d.holdings.date, items: slim }]).sort((a, b) => a.date < b.date ? -1 : 1).slice(-200);
+    }, `Kurser uppdaterade (${h.items.length} innehav)`);
     return h;
   }
   function pasteBox(onDone, hint) {
@@ -629,6 +844,7 @@ window.EKONOMI_VERSION = '1.6.0';
         h('div', { class: 'huge' }, hold ? kr(tot) : '–'), hold ? h('div', { class: 'sub' }, h('span', { class: cls(sk) }, krS(sk)), ' sedan köp') : h('div', { class: 'sub' }, 'Klistra in innehavslistan för att se värden.')),
       h('section', { class: 'card' }, importBtns, AV.paste ? pasteBox(() => { AV.paste = false; }) : null,
         h('p', { class: 'note' }, `${an.count} transaktioner ${an.first ? dstr(an.first) : ''} – ${an.lastDate ? dstr(an.lastDate) : ''}.`)),
+      bastSamstKort(),
       h('section', { class: 'card list' }, h('div', { class: 'row pad2' }, h('h2', {}, 'Innehav'),
         h('div', { class: 'seg' }, [['alla', 'Alla'], ['aktie', 'Aktier'], ['fond', 'Fonder'], ['etf', 'ETF']].map(([k, l]) => h('button', { class: AV.filter === k ? 'on' : '', onclick: () => { AV.filter = k; render(); } }, l)))),
         h('div', { class: 'li head h' }, h('span', {}, 'Namn'), h('span', {}, 'Värde kr'), h('span', {}, 'Total avk.')),
@@ -646,6 +862,21 @@ window.EKONOMI_VERSION = '1.6.0';
           h('span', { class: 'nm' }, c.name, h('small', {}, 'sålt ' + dstr(c.last))), h('span', { class: cls(c.resultat) }, nf0.format(c.resultat), h('small', {}, c.utd ? '+ utd ' + nf0.format(c.utd) : '')),
           h('span', { class: cls(c.total) }, c.total === null ? '–' : pct(c.total))),
           isOpen ? h('div', { class: 'det' }, h('table', { class: 'kv' }, h('tbody', {}, [['Köpt för', kr(c.kopt)], ['Sålt för', kr(c.salt)], ['Utdelningar', kr(c.utd)]].map(([k, v]) => h('tr', {}, h('td', {}, k), h('td', {}, v))))), txList(c.group.tx)) : null]; }).flat()));
+  }
+  function bastSamstKort() {
+    AV.bsKind = AV.bsKind || 'v';
+    const r = bastSamst(AV.bsKind);
+    const seg = h('div', { class: 'seg' }, [['v', 'Veckan'], ['y', 'I år']].map(([k, l]) => h('button', { class: AV.bsKind === k ? 'on' : '', onclick: () => { AV.bsKind = k; render(); } }, l)));
+    const head = h('div', { class: 'row' }, h('h2', {}, 'Bäst och sämst'), seg);
+    if (!r) return h('section', { class: 'card' }, head, h('p', { class: 'note' }, 'Visas när du har klistrat in innehavslistan minst två gånger (t.ex. två veckor i rad).'));
+    const rad = x => h('div', { class: 'bsrow' }, h('span', {}, x.name), h('b', { class: cls(x.kr) }, krS(x.kr)), h('small', { class: cls(x.pct) }, x.pct === null ? '' : pct(x.pct)));
+    const list = r.list, best = list.filter(x => x.kr > 0).slice(0, 3), worst = list.filter(x => x.kr < 0).slice(-3).reverse();
+    const tot = list.reduce((a, x) => a + x.kr, 0);
+    const all = h('details', { class: 'txl' }, h('summary', {}, `Alla innehav (${list.length})`), h('div', {}, list.map(rad)));
+    return h('section', { class: 'card' }, head,
+      h('p', { class: 'note' }, `${dstr(r.A.date)} – ${dstr(r.B.date)} · totalt ${krS(tot)}` + (AV.bsKind === 'y' && r.A.date > r.B.date.slice(0, 4) + '-01-08' ? ' · räknat från första listan i år' : '')),
+      h('div', { class: 'bsgrid' }, h('div', {}, h('h3', {}, 'Bäst'), best.length ? best.map(rad) : h('p', { class: 'note' }, '–')),
+        h('div', {}, h('h3', {}, 'Sämst'), worst.length ? worst.map(rad) : h('p', { class: 'note' }, '–'))), all);
   }
   function txList(tx) {
     const list = tx.slice().reverse();
@@ -692,11 +923,12 @@ window.EKONOMI_VERSION = '1.6.0';
         h('div', { class: 'btns' }, !Store.isDemo() ? h('button', { class: 'ghost', onclick: () => backup(true) }, 'Spara backup nu') : null,
           h('button', { class: 'ghost', onclick: () => download(workbook()) }, 'Ladda ner Excel'),
           h('button', { class: 'ghost', onclick: () => download(new Blob([JSON.stringify(S.data)], { type: 'application/json' }), `ekonomi-data-${today()}.json`) }, 'Ladda ner rådata (JSON)'))),
-      h('section', { class: 'card' }, h('h2', {}, 'Inställningar'),
+      h('section', { class: 'card' }, h('h2', {}, 'Inställningar'), h('a', { class: 'small', href: '#prognos' }, 'Se prognos för målet ›'),
         h('label', { class: 'fld' }, h('span', {}, 'Mål för förmögenhet (kr)'), malIn),
         h('label', { class: 'fld' }, h('span', {}, 'Namn på banken'), bankIn),
         h('div', { class: 'btns' }, h('button', { class: 'ghost', onclick: () => { const v = parseNum(malIn.value); if (!isFinite(v)) return toast('Ogiltigt belopp', 'err');
           const b = bankIn.value.trim(); commit(d => { d.settings = d.settings || {}; d.settings.mal = v; if (b) d.settings.bank = b; else delete d.settings.bank; }, 'Inställningarna är sparade'); } }, 'Spara'))),
+      h('section', { class: 'card' }, h('h2', {}, 'Årssammanfattning'), h('p', { class: 'note' }, 'En sammanfattning per år som du kan spara som PDF.'), h('div', { class: 'btns' }, h('a', { class: 'ghost btn', href: '#ar' }, 'Öppna årssammanfattning'))),
       kontoKort(),
       h('section', { class: 'card' }, h('h2', {}, 'Importera'),
         h('p', { class: 'note' }, 'Ersätter all data med innehållet i en JSON-fil (t.ex. startdatan från Excel eller en nedladdad rådatafil).'),
@@ -765,7 +997,7 @@ window.EKONOMI_VERSION = '1.6.0';
     const main = $('#main'); const hash = location.hash || '#oversikt';
     const [route, qs] = hash.slice(1).split('?');
     const nav = $('#nav'); nav.style.display = '';
-    const navR = ['avkastning', 'sparande', 'konto'].includes(route) ? 'oversikt' : route;
+    const navR = ['avkastning', 'sparande', 'konto', 'prognos', 'isk', 'ar'].includes(route) ? 'oversikt' : route;
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + navR));
     $('#status').textContent = S.busy ? 'Sparar…' : S.offline ? 'Offline – visar sparad kopia' : Store.isDemo() ? 'Demoläge' : '';
     let v;
@@ -777,6 +1009,9 @@ window.EKONOMI_VERSION = '1.6.0';
     else if (route === 'innehav') v = viewInnehav();
     else if (route === 'avkastning') v = viewAvkastning();
     else if (route === 'sparande') v = viewSparande();
+    else if (route === 'prognos') v = viewPrognos();
+    else if (route === 'isk') v = viewIsk();
+    else if (route === 'ar') v = viewAr(new URLSearchParams(qs || '').get('y'));
     else if (route === 'konto') v = viewKonto(new URLSearchParams(qs || '').get('k'));
     else if (route === 'mer') v = viewMore();
     else v = viewOverview();

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f4d3a">
 <meta name="referrer" content="no-referrer">
-<meta name="app-version" content="1.6.0">
+<meta name="app-version" content="1.8.0">
 <title>Ekonomi</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
@@ -19,7 +19,7 @@ header{position:sticky;top:0;z-index:5;background:var(--acc);color:#fff;padding:
 header b{font-size:17px;letter-spacing:.2px}header #status{margin-left:auto;font-size:12px;opacity:.85}
 main{max-width:760px;margin:0 auto;padding:12px 12px calc(90px + env(safe-area-inset-bottom))}
 nav{position:fixed;bottom:0;left:0;right:0;z-index:5;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom)}
-nav a{flex:1;max-width:160px;text-align:center;padding:9px 4px 8px;color:var(--mut);text-decoration:none;font-size:12px}
+nav a{flex:1;max-width:160px;line-height:1.15;text-align:center;padding:9px 4px 8px;color:var(--mut);text-decoration:none;font-size:12px}
 nav a svg{display:block;margin:0 auto 2px;width:22px;height:22px}nav a.on{color:var(--acc);font-weight:600}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 14px;margin:0 0 12px}
 h2{font-size:15px;margin:0 0 10px}h3{font-size:13px;margin:0 0 8px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
@@ -94,6 +94,26 @@ a.card.link{display:block;color:inherit;text-decoration:none}a.card.link:active{
 .wizbody .ghost.wide{margin-top:14px}.wizbody .warn{min-height:1em;margin:8px 2px 0}
 .wizfoot{display:flex;gap:10px;padding:12px 18px calc(16px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}.wizfoot button{flex:1;padding:13px 10px;font-size:15.5px}.wizfoot button:disabled{opacity:.4}
 .preview.big{font-size:15.5px;gap:8px;margin:0 0 12px}.wizsum{font-size:13.5px}.wizsum td:first-child{color:var(--mut)}
+.goal.link{display:block;color:inherit;text-decoration:none}
+.sld{display:block;padding:8px 0}.sld div{display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px}.sld input{width:100%;accent-color:var(--acc)}
+.dot.c4{background:var(--c4)}.line.c4.dash{stroke-dasharray:3 4}
+@media (max-width:420px){nav a{font-size:11px}}
+.bsgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:6px}@media (max-width:480px){.bsgrid{grid-template-columns:1fr}}
+.bsrow{display:grid;grid-template-columns:1fr auto;column-gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px;font-variant-numeric:tabular-nums}.bsrow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bsrow b{text-align:right}.bsrow small{grid-column:2;text-align:right;font-size:11.5px}
+.verdict{margin-top:12px;padding:10px 12px;border-radius:10px;font-weight:600;text-align:center}.verdict.pos{background:color-mix(in srgb,var(--pos) 14%,var(--card));color:var(--pos)}.verdict.neg{background:color-mix(in srgb,var(--neg) 12%,var(--card));color:var(--neg)}
+.links{display:flex;flex-direction:column;gap:2px;padding:4px 6px 10px}.links a{color:var(--acc);text-decoration:none;font-size:14px;padding:8px 4px}
+.arhead{padding:10px 6px 14px}.arhead h1{margin:2px 0;font-size:34px}.arhead .lbl{color:var(--acc);font-weight:700;text-transform:uppercase;letter-spacing:.6px;font-size:12.5px}
+.argrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px 10px}@media (max-width:560px){.argrid{grid-template-columns:1fr 1fr}}.arstat .big{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}.arstat .lbl{font-size:12px;color:var(--mut)}
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media (max-width:560px){.cols2{grid-template-columns:1fr}}
+.arbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:6px 4px 4px}.chipa{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:20px;padding:5px 11px;font-size:13px;text-decoration:none;flex:none}.chipa.on{background:var(--acc);border-color:var(--acc);color:#fff}
+@media print{
+  @page{margin:14mm}
+  :root{--bg:#fff;--card:#fff;--ink:#111;--mut:#555;--line:#ddd}
+  header,nav,#toasts,.noprint,.back{display:none!important}
+  body{background:#fff}main{padding:0;max-width:none}
+  .card{break-inside:avoid;border:1px solid #ddd;box-shadow:none}
+  .chart .tip,.chart .cursor{display:none!important}
+}
 </style>
 </head>
 <body>
@@ -102,17 +122,17 @@ a.card.link{display:block;color:inherit;text-decoration:none}a.card.link:active{
 <nav id="nav">
   <a href="#oversikt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 20h18M6 16v-5M11 16V7M16 16v-8M21 16V4"/></svg>Översikt</a>
   <a href="#ny"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Ny vecka</a>
-  <a href="#innehav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v9l7 4"/><circle cx="12" cy="12" r="9"/></svg>Innehav</a>
+  <a href="#innehav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v9l7 4"/><circle cx="12" cy="12" r="9"/></svg>Innehav Avanza</a>
   <a href="#historik"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Historik</a>
   <a href="#mer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>Mer</a>
 </nav>
 <div id="toasts"></div>
 <script src="config.js"></script>
-<script src="calc.js?v=1.6.0"></script>
-<script src="charts.js?v=1.6.0"></script>
-<script src="xlsx.js?v=1.6.0"></script>
-<script src="avanza.js?v=1.6.0"></script>
-<script src="store.js?v=1.6.0"></script>
-<script src="app.js?v=1.6.0"></script>
+<script src="calc.js?v=1.8.0"></script>
+<script src="charts.js?v=1.8.0"></script>
+<script src="xlsx.js?v=1.8.0"></script>
+<script src="avanza.js?v=1.8.0"></script>
+<script src="store.js?v=1.8.0"></script>
+<script src="app.js?v=1.8.0"></script>
 </body>
 </html>

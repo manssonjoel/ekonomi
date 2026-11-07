@@ -51,7 +51,8 @@
       }
       last = key;
     });
-    labs.forEach((l, j) => { if (j + 1 < labs.length && labs[j + 1][0] - l[0] < 34) return; g += `<text x="${l[0] + 3}" y="${H - 7}" class="ax">${l[1]}</text>`; });
+    const xmax = x(n - 1);
+    labs.forEach((l, j) => { if (j + 1 < labs.length && labs[j + 1][0] - l[0] < 34) return; if (j > 0 && xmax - l[0] < 26) return; g += `<text x="${l[0] + 3}" y="${H - 7}" class="ax">${l[1]}</text>`; });
     return g;
   }
 
