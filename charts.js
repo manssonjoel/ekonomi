@@ -27,6 +27,9 @@
   function box(svg, Wd, H, tipAt) {
     const d = document.createElement('div'); d.className = 'chart';
     d.innerHTML = `<svg viewBox="0 0 ${Wd} ${H}" role="img">${svg}<line class="cursor" x1="0" x2="0" y1="8" y2="${H - 22}" style="display:none"/></svg><div class="tip"></div>`;
+    // långt tryck ska flytta markören i grafen, inte öppna telefonens markering/meny
+    d.addEventListener('contextmenu', ev => ev.preventDefault());
+    d.addEventListener('selectstart', ev => ev.preventDefault());
     if (!tipAt) return d;
     const tip = d.querySelector('.tip'), cur = d.querySelector('.cursor');
     const move = ev => {
