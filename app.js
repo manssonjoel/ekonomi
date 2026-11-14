@@ -1,5 +1,5 @@
 /* Ekonomi – appens gränssnitt */
-window.EKONOMI_VERSION = '1.9.1';
+window.EKONOMI_VERSION = '1.9.2';
 (function () {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
@@ -815,7 +815,7 @@ window.EKONOMI_VERSION = '1.9.1';
       const slim = items.map(i => ({ name: i.name, typ: i.typ, varde: i.varde }));
       d.snaps = (d.snaps || []).filter(x => x.date !== t).concat([{ date: t, items: slim }]).sort((a, b) => a.date < b.date ? -1 : 1).slice(-200);
     }, `${p.sections.map(x => GRUPP[x] || x).join(', ')} inläst (${p.items.length} innehav)`);
-    return { items: p.items, sections: p.sections, totals: merged ? merged.totals : p.totals, holdings: merged };
+    return { items: p.items, sections: p.sections, totals: merged ? merged.totals : p.totals, holdings: merged, varning: p.varning };
   }
   const idagInlast = () => { const hd = AV.data && AV.data.holdings, dt = (hd && hd.dates) || {}; return ['aktie', 'fond', 'etf'].map(k => [k, dt[k] === today()]); };
   function inlastStatus() { return h('div', { class: 'inlast' }, h('span', {}, 'Inläst idag:'), idagInlast().map(([k, ok]) => h('b', { class: ok ? 'ok' : '' }, (ok ? '✓ ' : '– ') + GRUPP[k]))); }
@@ -830,7 +830,8 @@ window.EKONOMI_VERSION = '1.9.1';
       h('div', { class: 'grprow' }, h('span', { class: 'small' }, 'Det jag klistrar in är:'), seg), ta, status,
       h('div', { class: 'btns' }, opts.close ? h('button', { type: 'button', class: 'ghost', onclick: opts.close }, 'Klar') : null,
         h('button', { type: 'button', class: 'primary', onclick: async () => {
-          try { const res = await avSaveHoldings(ta.value, grp); ta.value = ''; status.replaceChildren(inlastStatus()); onDone && onDone(res); } catch (e) { toast(e.message, 'err'); } } }, 'Läs in')));
+          try { const res = await avSaveHoldings(ta.value, grp); ta.value = ''; status.replaceChildren(inlastStatus()); onDone && onDone(res);
+            if (res.varning) setTimeout(() => toast(`Obs! Inläst ${kr(res.varning.summa)} men Avanza visar ${kr(res.varning.avanza)} – något innehav kan saknas. Kopiera gärna om gruppen.`, 'err'), 1600); } catch (e) { toast(e.message, 'err'); } } }, 'Läs in')));
   }
 
   function viewInnehav() {

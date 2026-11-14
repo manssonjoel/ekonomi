@@ -54,36 +54,62 @@
   }
 
   // ---------------------------------------------------------------- innehavslista (inklistrad från Avanza)
-  // forced = 'aktie' | 'fond' | 'etf' när man klistrar in en grupp utan rubrik
+  // forced = 'aktie' | 'fond' | 'etf' när man klistrar in en grupp utan rubrik.
+  // Klarar datorns tabellformat (namnrad + tabbrad) och mobilappens format (namn, sedan rubrik/värde på varsin rad).
+  const LABEL = /^(idag|igår|i går|i dag|\d{1,2} [a-zåäö]{3}\.?( \d{4})?|\d+ ?(d|dag|dagar|v|vecka|veckor|m|mån|månader|år)|i år|ytd|sedan köp( %| kr)?|värde( kr)?|utveckling( %)?|senast|kurs|antal|gav|anskaffningsvärde|marknadsvärde|1 dag( %)?|idag %|avkastning|%|kr)$/i;
   function parseHoldings(text, forced) {
-    const lines = text.split(/\r?\n/).map(l => l.replace(/ /g, ' ')).filter(l => l.trim());
-    const items = [], sections = new Set(); let typ = forced || null, lastName = null, pend = [];
-    const SKIP = /^(utveckling|inköpsinfo|utdelningar|historik|handelsinfo|land|namn|1 dag %|senast|nav|sedan köp( %)?|värde|verktyg|konto|innehav|min ekonomi|översikt|ordrar|transaktioner|analys|kalender|köp|sälj)$/i;
-    const push = (name, n, konto) => { const [senast, sedanKop, sedanKopPct, varde] = n.slice(-4); const t = typ || 'aktie'; sections.add(t);
-      items.push({ name, typ: t, konto: konto || null, senast, sedanKop, sedanKopPct: sedanKopPct / 100, varde }); };
-    // värden på egna rader (vanligt när man kopierar i mobilen)
-    const flush = () => { if (lastName && pend.length >= 4) { const k = pend.length > 5 && /^\d{5,}$/.test(pend[0].raw) ? pend[0].raw : null; push(lastName, pend.map(p => p.v), k); lastName = null; } pend = []; };
+    const lines = text.split(/\r?\n/).map(l => l.replace(/[  ]/g, ' ')).filter(l => l.trim());
+    const items = [], sections = new Set(), shown = []; let typ = forced || null, lastName = null, blk = null, totNext = false;
+    const SKIP = /^(inköpsinfo|utdelningar|historik|handelsinfo|land|namn|nav|verktyg|konto|innehav|min ekonomi|översikt|ordrar|transaktioner|analys|kalender|köp|sälj|fyll på ditt innehav|visa (fler|alla)|sortera|just nu|marknaden|upptäck|meny)$/i;
+    const push = (name, o) => { const t = typ || 'aktie'; sections.add(t); items.push(Object.assign({ name, typ: t, konto: null }, o)); };
+    // mobilblock: { name, pairs: [[label, value, raw]] }
+    const flushBlk = () => {
+      if (blk && blk.pairs.length) {
+        const P = blk.pairs, get = re => { const x = P.find(p => p[0] && re.test(p[0])); return x ? x : null; };
+        const v = get(/^(värde|marknadsvärde)/i), krs = P.filter(p => /kr\s*$/i.test(p[2]));
+        const varde = v ? v[1] : krs.length ? krs[krs.length - 1][1] : P[P.length - 1][1];
+        const sk = get(/^sedan köp/i), skKr = P.find(p => /^sedan köp/i.test(p[0] || '') && /kr\s*$/i.test(p[2]));
+        const pctv = sk && /%\s*$/.test(sk[2]) ? sk[1] / 100 : null;
+        const sedanKop = skKr ? skKr[1] : pctv !== null && pctv > -1 ? varde - varde / (1 + pctv) : 0;
+        push(blk.name, { senast: null, sedanKop, sedanKopPct: pctv !== null ? pctv : (varde - sedanKop ? sedanKop / (varde - sedanKop) : 0), varde });
+      }
+      blk = null;
+    };
     for (const raw of lines) {
       const l = raw.trim();
       const hdr = /^aktier$/i.test(l) ? 'aktie' : /^fonder$/i.test(l) ? 'fond' : /^(etf:er|etf)$/i.test(l) ? 'etf' : /^(certifikat|obligationer|övriga|optioner|warranter)$/i.test(l) ? 'övrigt' : null;
-      if (hdr) { flush(); lastName = null; typ = hdr; continue; }
+      if (hdr) { flushBlk(); lastName = null; typ = hdr; continue; }
+      if (/^totalt( värde)?\b/i.test(l)) { flushBlk(); lastName = null; const n = l.split(/\t/).map(num).filter(x => x !== null); if (n.length) shown.push(n[n.length - 1]); else totNext = true; continue; }
       if (SKIP.test(l)) continue;
-      if (/^totalt värde/i.test(l)) { flush(); lastName = null; continue; }
       const parts = raw.split('\t').map(x => x.trim()).filter(x => x !== '');
-      const nums = parts.map(num);
-      if (parts.length >= 4 && nums.slice(-4).every(x => x !== null) && lastName) {
-        const n = nums.filter(x => x !== null);
-        push(lastName, n, parts.length > 5 && /^\d{5,}$/.test(parts[0]) ? parts[0] : null);
-        lastName = null; pend = [];
-      } else if (parts.length === 1 && nums[0] !== null) { if (lastName) pend.push({ v: nums[0], raw: parts[0] }); }
-      else if (parts.length === 1 && nums[0] === null) { flush(); lastName = l; }
+      if (parts.length >= 4) {   // datorns tabbrad
+        const nums = parts.map(num);
+        if (nums.slice(-4).every(x => x !== null) && lastName) {
+          const n = nums.filter(x => x !== null), [senast, sedanKop, sedanKopPct, varde] = n.slice(-4);
+          push(lastName, { konto: parts.length > 5 && /^\d{5,}$/.test(parts[0]) ? parts[0] : null, senast, sedanKop, sedanKopPct: sedanKopPct / 100, varde });
+          lastName = null; blk = null;
+        }
+        continue;
+      }
+      if (LABEL.test(l)) { if (blk) blk.label = l; continue; }
+      const n = parts.length === 1 ? num(l) : null;
+      if (n !== null && /\d/.test(l) && !/[a-zåäö]{3,}/i.test(l.replace(/kr|sek|usd|eur/ig, ''))) {
+        if (totNext) { shown.push(n); totNext = false; continue; }
+        if (blk) { blk.pairs.push([blk.label || null, n, l]); blk.label = null; }
+        continue;
+      }
+      totNext = false;
+      flushBlk(); lastName = l; blk = { name: l, pairs: [], label: null };
     }
-    flush();
+    flushBlk();
     if (!items.length) throw new Error('Hittade inga innehav. Kopiera listan från Avanza (Min ekonomi › Innehav) – hela listan eller en grupp i taget.');
     const totals = { aktie: 0, fond: 0, etf: 0, övrigt: 0 };
     items.forEach(i => { totals[i.typ] = (totals[i.typ] || 0) + i.varde; });
     totals.alla = items.reduce((s, i) => s + i.varde, 0);
-    return { items, totals, sections: [...sections] };
+    // kontroll mot Avanzas egen "Totalt"-rad (bara när en enda grupp klistrats in)
+    let varning = null;
+    if (shown.length === 1 && sections.size === 1) { const sum = totals.alla; if (Math.abs(sum - shown[0]) > Math.max(2, shown[0] * 0.001)) varning = { summa: sum, avanza: shown[0] }; }
+    return { items, totals, sections: [...sections], varning };
   }
 
   // ---------------------------------------------------------------- analys
