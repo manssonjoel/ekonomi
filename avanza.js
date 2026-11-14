@@ -226,12 +226,21 @@
   // ---------------------------------------------------------------- utveckling per innehav mellan två inklistrade listor
   // kr = värde nu − värde då − (köp − sälj däremellan);  % = kr / (värde då + nettoköp om positivt)
   function perf(tx, an, snapA, snapB) {
-    const sum = snap => { const m = new Map(); (snap.items || []).forEach(i => { const k = norm(i.name); const o = m.get(k) || { name: i.name, typ: i.typ, v: 0 }; o.v += i.varde; m.set(k, o); }); return m; };
-    const A = sum(snapA), B = sum(snapB), keys = new Set([...A.keys(), ...B.keys()]), res = [];
-    const flowOf = k => { let f = 0; an.groups.forEach(g => { if (!g.allNames.has(k)) return;
+    // jämför bara grupper (aktier/fonder/ETF) som finns i båda listorna
+    const typs = snap => new Set((snap.items || []).map(i => i.typ));
+    const tA = typs(snapA), tB = typs(snapB), both = t => tA.has(t) && tB.has(t);
+    // samma innehav kan heta lite olika (mobil/dator, förkortat namn): slå ihop via transaktionsgruppen eller början av namnet
+    const keyOf = name => { const k = norm(name); const g = an && an.groups.find(g => g.allNames.has(k)); return g ? 'g:' + g.name : k; };
+    const sum = snap => { const m = new Map(); (snap.items || []).filter(i => both(i.typ)).forEach(i => { const k = keyOf(i.name); const o = m.get(k) || { name: i.name, typ: i.typ, v: 0, nk: norm(i.name) }; o.v += i.varde; m.set(k, o); }); return m; };
+    const A = sum(snapA), B = sum(snapB);
+    [...A.keys()].forEach(ka => { if (B.has(ka)) return; const a = A.get(ka);
+      const kb = [...B.keys()].find(k => !A.has(k) && B.get(k).typ === a.typ && a.nk.length >= 6 && B.get(k).nk.length >= 6 && (B.get(k).nk.startsWith(a.nk) || a.nk.startsWith(B.get(k).nk)));
+      if (kb) { B.set(ka, B.get(kb)); B.delete(kb); } });
+    const keys = new Set([...A.keys(), ...B.keys()]), res = [];
+    const flowOf = (name) => { const k = norm(name); let f = 0; an.groups.forEach(g => { if (!g.allNames.has(k)) return;
       g.tx.forEach(t => { if (t.d > snapA.date && t.d <= snapB.date && SECCASH.has(t.typ) && t.belopp) f += -t.belopp; }); }); return f; };
     keys.forEach(k => {
-      const a = A.get(k), b = B.get(k), va = a ? a.v : 0, vb = b ? b.v : 0, net = flowOf(k);
+      const a = A.get(k), b = B.get(k), va = a ? a.v : 0, vb = b ? b.v : 0, net = flowOf((b || a).name);
       const kr = vb - va - net, base = va + Math.max(net, 0);
       if (!va && !vb) return;
       res.push({ name: (b || a).name, typ: (b || a).typ, kr, pct: base > 0 ? kr / base : null, va, vb, net });

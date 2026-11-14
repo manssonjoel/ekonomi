@@ -1,5 +1,5 @@
 /* Ekonomi – appens gränssnitt */
-window.EKONOMI_VERSION = '1.9.0';
+window.EKONOMI_VERSION = '1.9.1';
 (function () {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
@@ -1046,7 +1046,10 @@ window.EKONOMI_VERSION = '1.9.0';
     main.dataset.route = hash; main.replaceChildren(v);
     const on = main.querySelector('.chips button.on'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
-  let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (!location.hash.startsWith('#ny')) render(); }, 250); });
+  // rita om diagrammen bara när bredden ändras – tangentbordet i mobilen ändrar bara höjden
+  let rz, rzW = window.innerWidth; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => {
+    const ae = document.activeElement; if (window.innerWidth === rzW || (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) || document.querySelector('.paste')) return;
+    rzW = window.innerWidth; if (!location.hash.startsWith('#ny')) render(); }, 250); });
   window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
 
   async function boot() {
