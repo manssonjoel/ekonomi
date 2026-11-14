@@ -54,33 +54,36 @@
   }
 
   // ---------------------------------------------------------------- innehavslista (inklistrad från Avanza)
-  function parseHoldings(text) {
+  // forced = 'aktie' | 'fond' | 'etf' när man klistrar in en grupp utan rubrik
+  function parseHoldings(text, forced) {
     const lines = text.split(/\r?\n/).map(l => l.replace(/ /g, ' ')).filter(l => l.trim());
-    const items = []; let typ = null, lastName = null;
-    const SKIP = /^(utveckling|inköpsinfo|utdelningar|historik|handelsinfo|land|namn|1 dag %|senast|nav|sedan köp( %)?|värde|verktyg|konto)$/i;
+    const items = [], sections = new Set(); let typ = forced || null, lastName = null, pend = [];
+    const SKIP = /^(utveckling|inköpsinfo|utdelningar|historik|handelsinfo|land|namn|1 dag %|senast|nav|sedan köp( %)?|värde|verktyg|konto|innehav|min ekonomi|översikt|ordrar|transaktioner|analys|kalender|köp|sälj)$/i;
+    const push = (name, n, konto) => { const [senast, sedanKop, sedanKopPct, varde] = n.slice(-4); const t = typ || 'aktie'; sections.add(t);
+      items.push({ name, typ: t, konto: konto || null, senast, sedanKop, sedanKopPct: sedanKopPct / 100, varde }); };
+    // värden på egna rader (vanligt när man kopierar i mobilen)
+    const flush = () => { if (lastName && pend.length >= 4) { const k = pend.length > 5 && /^\d{5,}$/.test(pend[0].raw) ? pend[0].raw : null; push(lastName, pend.map(p => p.v), k); lastName = null; } pend = []; };
     for (const raw of lines) {
       const l = raw.trim();
-      if (/^aktier$/i.test(l)) { typ = 'aktie'; continue; }
-      if (/^fonder$/i.test(l)) { typ = 'fond'; continue; }
-      if (/^(etf:er|etf)$/i.test(l)) { typ = 'etf'; continue; }
-      if (/^(certifikat|obligationer|övriga|optioner|warranter)$/i.test(l)) { typ = 'övrigt'; continue; }
+      const hdr = /^aktier$/i.test(l) ? 'aktie' : /^fonder$/i.test(l) ? 'fond' : /^(etf:er|etf)$/i.test(l) ? 'etf' : /^(certifikat|obligationer|övriga|optioner|warranter)$/i.test(l) ? 'övrigt' : null;
+      if (hdr) { flush(); lastName = null; typ = hdr; continue; }
       if (SKIP.test(l)) continue;
-      if (/^totalt värde/i.test(l)) { lastName = null; continue; }
+      if (/^totalt värde/i.test(l)) { flush(); lastName = null; continue; }
       const parts = raw.split('\t').map(x => x.trim()).filter(x => x !== '');
       const nums = parts.map(num);
       if (parts.length >= 4 && nums.slice(-4).every(x => x !== null) && lastName) {
         const n = nums.filter(x => x !== null);
-        const konto = parts.length > 5 && /^\d{5,}$/.test(parts[0]) ? parts[0] : null;
-        const [senast, sedanKop, sedanKopPct, varde] = n.slice(-4);
-        items.push({ name: lastName, typ: typ || 'aktie', konto, senast, sedanKop, sedanKopPct: sedanKopPct / 100, varde });
-        lastName = null;
-      } else if (parts.length === 1 && nums[0] === null) lastName = l;
+        push(lastName, n, parts.length > 5 && /^\d{5,}$/.test(parts[0]) ? parts[0] : null);
+        lastName = null; pend = [];
+      } else if (parts.length === 1 && nums[0] !== null) { if (lastName) pend.push({ v: nums[0], raw: parts[0] }); }
+      else if (parts.length === 1 && nums[0] === null) { flush(); lastName = l; }
     }
-    if (!items.length) throw new Error('Hittade inga innehav. Markera och kopiera hela innehavslistan från Avanza (Aktier, Fonder och ETF:er).');
+    flush();
+    if (!items.length) throw new Error('Hittade inga innehav. Kopiera listan från Avanza (Min ekonomi › Innehav) – hela listan eller en grupp i taget.');
     const totals = { aktie: 0, fond: 0, etf: 0, övrigt: 0 };
     items.forEach(i => { totals[i.typ] = (totals[i.typ] || 0) + i.varde; });
     totals.alla = items.reduce((s, i) => s + i.varde, 0);
-    return { items, totals };
+    return { items, totals, sections: [...sections] };
   }
 
   // ---------------------------------------------------------------- analys

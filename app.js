@@ -1,5 +1,5 @@
 /* Ekonomi – appens gränssnitt */
-window.EKONOMI_VERSION = '1.8.2';
+window.EKONOMI_VERSION = '1.9.0';
 (function () {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
@@ -532,11 +532,12 @@ window.EKONOMI_VERSION = '1.8.2';
       return h('label', { class: 'fld' }, h('span', {}, label), inp);
     };
     const labels = {}; let tried = false;
+    // fyller bara i de grupper som just klistrades in (konton du stängt av räknas bort)
     function applyHoldings(res) {
       const t = res.totals, ex = ((S.data.settings || {}).avanzaEx) || [], x = AV.an ? Avanza.excludedValues(AV.an, AV.data.holdings, ex) : { aktie: 0, fond: 0, etf: 0 };
-      inputs['av.av'].value = fmtIn(Math.round(t.aktie - x.aktie)); inputs['av.fv'].value = fmtIn(Math.round(t.fond - x.fond)); inputs['av.ev'].value = fmtIn(Math.round(t.etf - x.etf));
-      ['av.av', 'av.fv', 'av.ev'].forEach(p => delete inputs[p].dataset.auto);
-      if (x.aktie + x.fond + x.etf) toast(`${kr(x.aktie + x.fond + x.etf)} på avstängda konton är borträknat`, 'ok');
+      const F = { aktie: 'av.av', fond: 'av.fv', etf: 'av.ev' }; let bort = 0;
+      res.sections.filter(k => F[k]).forEach(k => { inputs[F[k]].value = fmtIn(Math.round(t[k] - x[k])); delete inputs[F[k]].dataset.auto; bort += x[k]; });
+      if (bort) toast(`${kr(bort)} på avstängda konton är borträknat`, 'ok');
     }
     // Enter / Nästa: hoppa till nästa synliga tomma fält (eller Spara)
     function nextEmpty(from) {
@@ -585,8 +586,8 @@ window.EKONOMI_VERSION = '1.8.2';
         let box = null;
         const btn = h('button', { type: 'button', class: 'linkbtn', onclick: () => {
           if (box) { box.remove(); box = null; return; }
-          box = pasteBox(res => { applyHoldings(res); box.remove(); box = null; preview(); },
-            'Värdena för aktier, fonder och ETF fylls i (konton du stängt av räknas bort), och kurserna under Innehav uppdateras.');
+          box = pasteBox(res => { applyHoldings(res); preview(); },
+            'Klistra in hela listan, eller en grupp i taget (välj då vilken). Fälten fylls i och kurserna under Innehav uppdateras.', { close: () => { box.remove(); box = null; } });
           sec.append(box); } }, 'Klistra in innehavslistan från Avanza');
         sec.append(btn);
       }
@@ -720,15 +721,13 @@ window.EKONOMI_VERSION = '1.8.2';
         }
         const [p, sec, q, extra] = steps[i], src = inputs[p], kind = src.dataset.kind;
         if (pasteMode) {
-          const ta = h('textarea', { rows: 7, placeholder: 'Markera hela innehavslistan på Avanza (Min ekonomi › Innehav), kopiera och klistra in här.' });
-          const read = async () => {
-            try { const res = await avSaveHoldings(ta.value); applyHoldings(res); pasteMode = false;
-              const left = steps.slice(i).filter(([pp]) => inputs[pp].value.trim() === ''); steps.splice(i, steps.length - i, ...left); show(); }
-            catch (e) { toast(e.message, 'err'); }
-          };
-          frame('Avanza', [h('div', { class: 'wizq' }, 'Klistra in innehavslistan'), h('p', { class: 'note' }, 'Aktier, fonder och ETF fylls i på en gång. Konton du stängt av räknas bort.'), ta],
-            [h('button', { type: 'button', class: 'ghost', onclick: () => { pasteMode = false; show(); } }, '‹ Avbryt'), h('button', { type: 'button', class: 'primary', onclick: read }, 'Läs in')]);
-          setTimeout(() => ta.focus(), 30);
+          const done = () => { const left = steps.slice(i).filter(([pp]) => inputs[pp].value.trim() === ''); steps.splice(i, steps.length - i, ...left); pasteMode = false; show(); };
+          const pb = pasteBox(res => { applyHoldings(res); if (['av.av', 'av.fv', 'av.ev'].every(pp => inputs[pp].value.trim() !== '')) done(); },
+            'Hela listan, eller en grupp i taget – välj då vilken grupp det är. Konton du stängt av räknas bort.');
+          const lasIn = pb.querySelector('.btns'); lasIn.remove();
+          frame('Avanza', [h('div', { class: 'wizq' }, 'Klistra in innehavslistan'), pb],
+            [h('button', { type: 'button', class: 'ghost', onclick: done }, '‹ Klar'), lasIn.querySelector('.primary')]);
+          setTimeout(() => pb.querySelector('textarea').focus(), 30);
           return;
         }
         const inp = h('input', { inputmode: 'decimal', enterkeyhint: 'next', autocomplete: 'off', value: src.value, placeholder: kind === 'value' ? '' : '0' });
@@ -799,22 +798,39 @@ window.EKONOMI_VERSION = '1.8.2';
       await avSave(d => { d.tx = m.rows; if (!d.coverTo || end > d.coverTo) d.coverTo = end; }, m.added ? `${m.added} nya transaktioner (${m.skipped} fanns redan)` : 'Inga nya transaktioner – allt fanns redan');
     } catch (e) { toast(e.message, 'err'); }
   }
-  async function avSaveHoldings(text) {
-    const h = Avanza.parseHoldings(text);
+  const GRUPP = { aktie: 'Aktier', fond: 'Fonder', etf: 'ETF' };
+  // Läser in innehavslistan – hela eller en grupp i taget. Grupper som inte klistras in behålls.
+  async function avSaveHoldings(text, forced) {
+    const p = Avanza.parseHoldings(text, forced);
     if (!AV.loaded) await avLoad();
+    let merged;
     await avSave(d => {
-      d.holdings = { date: today(), items: h.items, totals: h.totals };
+      const t = today(), old = d.holdings || { items: [], dates: {} };
+      const items = (old.items || []).filter(i => !p.sections.includes(i.typ)).concat(p.items);
+      const dates = Object.assign({}, old.dates || {}); p.sections.forEach(x => dates[x] = t);
+      if (!old.dates && old.date) (old.items || []).forEach(i => { if (!p.sections.includes(i.typ)) dates[i.typ] = dates[i.typ] || old.date; });
+      const totals = { aktie: 0, fond: 0, etf: 0, övrigt: 0 }; items.forEach(i => totals[i.typ] = (totals[i.typ] || 0) + i.varde); totals.alla = items.reduce((a, i) => a + i.varde, 0);
+      d.holdings = { date: t, items, totals, dates }; merged = d.holdings;
       // ögonblicksbild per dag (används för bäst/sämst och årssammanfattning)
-      const slim = h.items.map(i => ({ name: i.name, typ: i.typ, varde: i.varde }));
-      d.snaps = (d.snaps || []).filter(x => x.date !== d.holdings.date).concat([{ date: d.holdings.date, items: slim }]).sort((a, b) => a.date < b.date ? -1 : 1).slice(-200);
-    }, `Kurser uppdaterade (${h.items.length} innehav)`);
-    return h;
+      const slim = items.map(i => ({ name: i.name, typ: i.typ, varde: i.varde }));
+      d.snaps = (d.snaps || []).filter(x => x.date !== t).concat([{ date: t, items: slim }]).sort((a, b) => a.date < b.date ? -1 : 1).slice(-200);
+    }, `${p.sections.map(x => GRUPP[x] || x).join(', ')} inläst (${p.items.length} innehav)`);
+    return { items: p.items, sections: p.sections, totals: merged ? merged.totals : p.totals, holdings: merged };
   }
-  function pasteBox(onDone, hint) {
-    const ta = h('textarea', { rows: 6, placeholder: 'Markera hela innehavslistan på Avanza (Min ekonomi › Innehav), kopiera och klistra in här.' });
-    return h('div', { class: 'paste' }, hint ? h('p', { class: 'note' }, hint) : null, ta,
-      h('div', { class: 'btns' }, h('button', { type: 'button', class: 'primary', onclick: async () => {
-        try { const res = await avSaveHoldings(ta.value); onDone && onDone(res); } catch (e) { toast(e.message, 'err'); } } }, 'Läs in')));
+  const idagInlast = () => { const hd = AV.data && AV.data.holdings, dt = (hd && hd.dates) || {}; return ['aktie', 'fond', 'etf'].map(k => [k, dt[k] === today()]); };
+  function inlastStatus() { return h('div', { class: 'inlast' }, h('span', {}, 'Inläst idag:'), idagInlast().map(([k, ok]) => h('b', { class: ok ? 'ok' : '' }, (ok ? '✓ ' : '– ') + GRUPP[k]))); }
+  function pasteBox(onDone, hint, opts = {}) {
+    let grp = null;
+    const ta = h('textarea', { rows: 6, placeholder: 'Kopiera från Avanza (Min ekonomi › Innehav) och klistra in här – hela listan eller en grupp i taget.' });
+    const seg = h('div', { class: 'seg grp' }, [[null, 'Hela/auto'], ['aktie', 'Aktier'], ['fond', 'Fonder'], ['etf', 'ETF']].map(([k, l]) =>
+      h('button', { type: 'button', class: k === grp ? 'on' : '', onclick: ev => { grp = k; [...seg.children].forEach(b => b.classList.toggle('on', b === ev.target)); } }, l)));
+    seg.firstChild.classList.add('on');
+    const status = h('div', {}, AV.loaded ? inlastStatus() : null);
+    return h('div', { class: 'paste' }, hint ? h('p', { class: 'note' }, hint) : null,
+      h('div', { class: 'grprow' }, h('span', { class: 'small' }, 'Det jag klistrar in är:'), seg), ta, status,
+      h('div', { class: 'btns' }, opts.close ? h('button', { type: 'button', class: 'ghost', onclick: opts.close }, 'Klar') : null,
+        h('button', { type: 'button', class: 'primary', onclick: async () => {
+          try { const res = await avSaveHoldings(ta.value, grp); ta.value = ''; status.replaceChildren(inlastStatus()); onDone && onDone(res); } catch (e) { toast(e.message, 'err'); } } }, 'Läs in')));
   }
 
   function viewInnehav() {
