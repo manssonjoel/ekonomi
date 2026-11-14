@@ -1,5 +1,5 @@
 /* Ekonomi – appens gränssnitt */
-window.EKONOMI_VERSION = '1.9.2';
+window.EKONOMI_VERSION = '1.9.3';
 (function () {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
@@ -1045,12 +1045,14 @@ window.EKONOMI_VERSION = '1.9.2';
       const btn = main.querySelector('button[type=submit]'); if (btn) { btn.disabled = S.busy; btn.textContent = S.busy ? 'Sparar…' : 'Spara'; } return;
     }
     main.dataset.route = hash; main.replaceChildren(v);
-    const on = main.querySelector('.chips button.on'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' });
+    // centrera vald diagramknapp i sidled – utan att rulla själva sidan
+    main.querySelectorAll('.chips').forEach(c => { const on = c.querySelector('button.on'); if (on) c.scrollLeft = on.offsetLeft - c.offsetLeft - (c.clientWidth - on.offsetWidth) / 2; });
   }
   // rita om diagrammen bara när bredden ändras – tangentbordet i mobilen ändrar bara höjden
   let rz, rzW = window.innerWidth; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => {
     const ae = document.activeElement; if (window.innerWidth === rzW || (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) || document.querySelector('.paste')) return;
     rzW = window.innerWidth; if (!location.hash.startsWith('#ny')) render(); }, 250); });
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
   window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
 
   async function boot() {
